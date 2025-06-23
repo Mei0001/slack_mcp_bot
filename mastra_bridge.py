@@ -21,7 +21,7 @@ class MastraBridge:
         try:
             # 既に起動している場合はスキップ
             if self.is_running():
-                logger.info("Mastra agent server is already running")
+                logger.info(f"Mastra agent server is already running on port {self.port}")
                 return True
             
             # Node.jsサーバーを起動
@@ -32,7 +32,11 @@ class MastraBridge:
             if 'GEMINI_API_KEY' in os.environ:
                 env['GOOGLE_GENERATIVE_AI_API_KEY'] = os.environ['GEMINI_API_KEY']
             
-            cmd = ['npx', 'tsx', 'src/agent/index.ts']
+            # Notion APIキーも渡す
+            if 'NOTION_API_KEY' in os.environ:
+                env['NOTION_API_KEY'] = os.environ['NOTION_API_KEY']
+            
+            cmd = ['npm', 'run', 'dev']
             
             self.process = subprocess.Popen(
                 cmd,
@@ -43,13 +47,24 @@ class MastraBridge:
             )
             
             # サーバーが起動するまで待機
-            for _ in range(30):  # 最大30秒待機
+            logger.info(f"Waiting for Mastra agent server to start on port {self.port}...")
+            for i in range(30):  # 最大30秒待機
                 time.sleep(1)
                 if self.is_running():
-                    logger.info(f"Mastra agent server started on port {self.port}")
+                    logger.info(f"Mastra agent server started successfully on port {self.port}")
                     return True
+                if i % 5 == 0:
+                    logger.info(f"Still waiting for server... ({i}s)")
             
-            logger.error("Failed to start Mastra agent server")
+            # プロセスのエラー出力を確認
+            if self.process:
+                stdout, stderr = self.process.communicate(timeout=1)
+                if stderr:
+                    logger.error(f"Process stderr: {stderr.decode()}")
+                if stdout:
+                    logger.info(f"Process stdout: {stdout.decode()}")
+            
+            logger.error("Failed to start Mastra agent server after 30 seconds")
             return False
             
         except Exception as e:
@@ -75,30 +90,48 @@ class MastraBridge:
     def search(self, message: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
         """検索リクエストを送信"""
         try:
+            logger.info(f"[MastraBridge] Starting search request for message: {message[:50]}...")
+            
             if not self.is_running():
-                logger.error("Mastra agent server is not running")
-                return {"error": "エージェントサーバーが起動していません"}
+                logger.error("[MastraBridge] Mastra agent server is not running")
+                logger.info("[MastraBridge] Attempting to restart the server...")
+                if not self.start():
+                    return {"error": "エージェントサーバーの起動に失敗しました"}
             
             payload = {
                 "message": message,
                 "threadId": thread_id
             }
             
+            logger.info(f"[MastraBridge] Sending POST request to {self.base_url}/api/agent/search")
+            logger.info(f"[MastraBridge] Payload: {payload}")
+            
             response = requests.post(
                 f"{self.base_url}/api/agent/search",
                 json=payload,
-                timeout=30  # 長い処理に対応
+                timeout=60  # より長いタイムアウトに変更
             )
             
+            logger.info(f"[MastraBridge] Response status: {response.status_code}")
+            
             if response.status_code == 200:
-                return response.json()
+                result = response.json()
+                logger.info(f"[MastraBridge] Success! Response: {result.get('response', '')[:100]}...")
+                return result
             else:
-                return {"error": f"エラー: {response.status_code} - {response.text}"}
+                error_msg = f"エラー: {response.status_code} - {response.text}"
+                logger.error(f"[MastraBridge] {error_msg}")
+                return {"error": error_msg}
                 
         except requests.exceptions.Timeout:
-            return {"error": "リクエストがタイムアウトしました"}
+            logger.error("[MastraBridge] Request timeout after 60 seconds")
+            return {"error": "リクエストがタイムアウトしました（60秒）"}
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"[MastraBridge] Connection error: {e}")
+            return {"error": "エージェントサーバーに接続できません"}
         except Exception as e:
-            logger.error(f"Error calling Mastra agent: {e}")
+            logger.error(f"[MastraBridge] Error calling Mastra agent: {e}")
+            logger.error(f"[MastraBridge] Exception type: {type(e).__name__}")
             return {"error": str(e)}
 
 # グローバルインスタンス
