@@ -70,8 +70,11 @@ python app.py
 ### 仮想環境
 `slack-mcp-bot/` ディレクトリにはPython仮想環境が含まれています。依存関係を変更する際は、この環境との互換性を確保してください。
 
-### テスト
-現在テストは実装されていません（test/test_app.pyは空）。機能を追加する際は、pytestまたはunittestを使用したテストの実装を検討してください。
+### テストとトラブルシューティング
+- `test_mcp_direct.js`: MCPサーバーの接続確認用ユーティリティ
+  - 使用方法: `node test_mcp_direct.js`
+  - MCPツールの動作確認やトラブルシューティングに使用
+- 機能を追加する際は、pytestまたはunittestを使用したテストの実装を検討してください
 
 ### ボットの拡張
 新しいコマンドを追加する方法:
@@ -262,7 +265,7 @@ AGENT_PORT=3001
 
 1. **基本環境のセットアップ**
    - Node.js環境の構築（package.json, tsconfig.json）
-   - Mastra Agentの基本実装（src/agent/index.ts）
+   - Mastra Agentの実装（src/agent/index.ts）
    - Python-Node.js通信ブリッジ（mastra_bridge.py）
 
 2. **Slack統合**
@@ -270,33 +273,49 @@ AGENT_PORT=3001
    - メンション時の自動検索機能
    - エラーハンドリングとスレッド対応
 
-3. **アーキテクチャ実装**
+3. **MCP統合**
+   - Notion MCPサーバーの接続とツール検証
+   - Gemini LLMとMCPツールの統合
+   - ツールスキーマ検証とフィルタリング機能
+
+4. **スレッド機能**
+   - スレッド内記憶機能（thread_memory.py）
+   - メンションなしでのスレッド応答
+   - 会話コンテキストの管理（最大20メッセージ、24時間保持）
+
+5. **コードリファクタリング**
+   - 重複コードの統一と不要ファイルの削除
+   - エラーハンドリングの一貫性向上
+   - ログメッセージの統一
+
+6. **アーキテクチャ実装**
    ```
    Slack Client
        ↓
-   Slack Bot (app.py)
+   Slack Bot (app.py) + Thread Memory
        ↓
    Mastra Bridge (mastra_bridge.py)
        ↓ HTTP通信
    Mastra Agent (src/agent/index.ts)
        ↓
-   MCP Servers（未接続）
+   MCP Servers (Notion) ✅
+       ↓
+   External APIs (Notion)
    ```
 
-### 未実装タスク 🔄
+### 今後の改善点 🔄
 
-1. **MCPサーバーの設定**
-   - Notion MCPサーバーのインストールと設定
-   - MCPClientでの接続設定
-   - 実際の検索機能の実装
+1. **Google Drive統合**
+   - Google Drive MCPサーバーの追加
+   - 複数プラットフォーム横断検索
 
-2. **コンテキスト管理**
-   - スレッド単位での会話履歴管理
-   - Geminiへのコンテキスト渡し
-
-3. **パフォーマンス最適化**
+2. **パフォーマンス最適化**
    - 検索結果のキャッシング
-   - タイムアウト処理の改善
+   - 長時間処理の最適化
+
+3. **ユーザビリティ向上**
+   - よりリッチな検索結果表示
+   - インタラクティブなボタン操作
 
 ## 次のステップ
 

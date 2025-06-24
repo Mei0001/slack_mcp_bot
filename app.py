@@ -6,6 +6,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
 from mastra_bridge import mastra_bridge
+from thread_memory import thread_memory
 
 # 環境変数の読み込み
 load_dotenv()
@@ -25,24 +26,6 @@ def message_hello(message, say):
     say(f"Hello <@{user_id}>! 👋 How can I help you today?")
     logger.info(f"Responded to hello message from user {user_id}")
 
-# メンション応答（古いバージョン - 無効化）
-# @app.event("app_mention")
-# def handle_app_mention_events_old(body, say, logger):
-#     """ボットがメンションされた時の応答処理"""
-#     event = body["event"]
-#     user_id = event["user"]
-#     text = event["text"]
-#     
-#     mention_text = text.split(">", 1)[1].strip() if ">" in text else ""
-#     
-#     if mention_text:
-#         response = f"Hi <@{user_id}>! You mentioned: '{mention_text}'. How can I assist you?"
-#     else:
-#         response = f"Hello <@{user_id}>! You mentioned me. What can I do for you?"
-#     
-#     say(response)
-#     logger.info(f"Responded to mention from user {user_id}")
-
 # ヘルプメッセージ
 @app.message(re.compile(r"(help|ヘルプ|助けて)"))
 def handle_help_message(message, say):
@@ -55,7 +38,7 @@ Available commands:
 • `@botname` - Mention the bot for assistance  
 • `help` - Show this help message
 • `time` - Get current time
-• `weather` - Get weather information (coming soon)
+• `search` / `検索` - Search for information using AI assistant
 • `joke` - Get a random joke
 
 For more information, please contact the development team.
@@ -110,6 +93,48 @@ def global_error_handler(error, body, logger):
     logger.exception(f"Error: {error}")
     logger.info(f"Request body: {body}")
 
+# Mastraエージェントを呼び出す共通関数
+def process_message_with_mastra(message_text, thread_ts, say, user_id=None):
+    """Mastraエージェントでメッセージを処理する共通関数"""
+    # 処理中メッセージを送信
+    say("メッセージを処理しています... 💭", thread_ts=thread_ts)
+    logger.info(f"[Slack] Processing message: {message_text[:50]}...")
+    
+    try:
+        # スレッドの会話履歴を取得
+        context = thread_memory.get_context(thread_ts)
+        
+        # ユーザーメッセージをスレッド記憶に追加
+        if user_id:
+            thread_memory.add_message(thread_ts, "user", message_text, user_id)
+        
+        # コンテキストを含めたメッセージを作成
+        if context:
+            full_message = f"過去の会話:\n{context}\n\n現在の質問: {message_text}"
+        else:
+            full_message = message_text
+        
+        # Mastraエージェントで処理
+        result = mastra_bridge.search(full_message, thread_id=thread_ts)
+        
+        if "error" in result:
+            error_msg = f"❌ エラーが発生しました: {result['error']}"
+            say(error_msg, thread_ts=thread_ts)
+            logger.error(f"[Slack] Error: {result['error']}")
+        else:
+            response = result.get('response', 'No response')
+            say(response, thread_ts=thread_ts)
+            
+            # ボットの応答をスレッド記憶に追加
+            thread_memory.add_message(thread_ts, "assistant", response)
+            
+            logger.info(f"[Slack] Response sent: {len(response)} chars")
+            
+    except Exception as e:
+        logger.error(f"[Slack] Processing error: {e}")
+        error_msg = f"❌ 処理中にエラーが発生しました: {str(e)}"
+        say(error_msg, thread_ts=thread_ts)
+
 # 検索機能（Mastraエージェント統合）
 @app.message(re.compile(r"(search|検索|探して|調べて)"))
 def handle_search_message(message, say):
@@ -118,24 +143,8 @@ def handle_search_message(message, say):
     text = message['text']
     thread_ts = message.get('thread_ts', message['ts'])
     
-    # 処理中メッセージを送信
-    say("🔍 検索中です... しばらくお待ちください。", thread_ts=thread_ts)
-    
-    try:
-        # Mastraエージェントを使用して検索
-        result = mastra_bridge.search(text, thread_id=thread_ts)
-        
-        if "error" in result:
-            say(f"❌ エラーが発生しました: {result['error']}", thread_ts=thread_ts)
-        else:
-            response = result.get('response', 'No response')
-            say(f"📋 検索結果:\n{response}", thread_ts=thread_ts)
-            
-    except Exception as e:
-        logger.error(f"Search error: {e}")
-        say(f"❌ 検索中にエラーが発生しました: {str(e)}", thread_ts=thread_ts)
-    
-    logger.info(f"Search request from user {user_id}: {text}")
+    process_message_with_mastra(text, thread_ts, say, user_id)
+    logger.info(f"Search request from user {user_id}")
 
 # メンションされた時の検索処理
 @app.event("app_mention")
@@ -150,34 +159,49 @@ def handle_app_mention_events(body, say, logger):
     
     if mention_text:
         # メンションされた場合は全てMastraエージェントで処理
-        say(f"<@{user_id}> メッセージを処理しています... 💭", thread_ts=thread_ts)
-        
-        try:
-            result = mastra_bridge.search(mention_text, thread_id=thread_ts)
-            
-            if "error" in result:
-                say(f"❌ エラーが発生しました: {result['error']}", thread_ts=thread_ts)
-            else:
-                response = result.get('response', 'No response')
-                say(response, thread_ts=thread_ts)
-                
-        except Exception as e:
-            logger.error(f"Mention search error: {e}")
-            say(f"❌ 処理中にエラーが発生しました: {str(e)}", thread_ts=thread_ts)
+        process_message_with_mastra(mention_text, thread_ts, say, user_id)
     else:
         # メンションだけで内容がない場合
-        say(f"<@{user_id}> こんにちは！何かお手伝いできることはありますか？ 💬", thread_ts=thread_ts)
+        say("こんにちは！何かお手伝いできることはありますか？ 💬", thread_ts=thread_ts)
         
         try:
-            result = mastra_bridge.search("ユーザーが挨拶をしてきました。友好的に応答してください。", thread_id=thread_ts)
+            # 挨拶メッセージとして処理
+            thread_memory.add_message(thread_ts, "user", "挨拶", user_id)
+            greeting_message = "ユーザーが挨拶をしてきました。友好的に応答してください。"
+            result = mastra_bridge.search(greeting_message, thread_id=thread_ts)
             if "error" not in result:
                 response = result.get('response', '')
                 if response:
                     say(response, thread_ts=thread_ts)
+                    thread_memory.add_message(thread_ts, "assistant", response)
         except Exception as e:
             logger.error(f"Greeting error: {e}")
     
     logger.info(f"Responded to mention from user {user_id}")
+
+# スレッド内でのメンションなし応答
+@app.message("")
+def handle_thread_messages(message, say, logger):
+    """スレッド内でのメンションなしメッセージに応答"""
+    # メンションチェック - メンションの場合はスキップ
+    if "<@" in message.get('text', ''):
+        return
+    
+    # スレッド内かチェック
+    thread_ts = message.get('thread_ts')
+    if not thread_ts:
+        return
+    
+    # このスレッドに過去の履歴があるかチェック
+    if not thread_memory.has_history(thread_ts):
+        return
+    
+    user_id = message['user']
+    text = message['text']
+    
+    # Mastraエージェントで処理
+    process_message_with_mastra(text, thread_ts, say, user_id)
+    logger.info(f"Thread message from user {user_id}")
 
 # アプリの起動
 if __name__ == "__main__":
