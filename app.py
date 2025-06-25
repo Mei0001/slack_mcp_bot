@@ -108,14 +108,15 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None):
         if user_id:
             thread_memory.add_message(thread_ts, "user", message_text, user_id)
         
-        # コンテキストを含めたメッセージを作成
-        if context:
-            full_message = f"過去の会話:\n{context}\n\n現在の質問: {message_text}"
-        else:
-            full_message = message_text
+        # 新しいサーバーAPIに対応したペイロードを作成
+        payload = {
+            "message": message_text,
+            "threadId": thread_ts,
+            "context": context if context else None
+        }
         
         # Mastraエージェントで処理
-        result = mastra_bridge.search(full_message, thread_id=thread_ts)
+        result = mastra_bridge.search_with_payload(payload)
         
         if "error" in result:
             error_msg = f"❌ エラーが発生しました: {result['error']}"
@@ -123,6 +124,12 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None):
             logger.error(f"[Slack] Error: {result['error']}")
         else:
             response = result.get('response', 'No response')
+            
+            # 警告がある場合は追加
+            warning = result.get('warning')
+            if warning:
+                response = f"⚠️ {warning}\n\n{response}"
+            
             say(response, thread_ts=thread_ts)
             
             # ボットの応答をスレッド記憶に追加
