@@ -2,11 +2,43 @@
 
 Claude AIエージェントとMCPサーバーを統合したSlack Botアプリケーションです。NotionやGoogle Driveなどの外部サービスから情報を検索・管理できるAIアシスタントです。
 
+## 概要
+
+このボットは以下の技術を組み合わせて構築されています：
+
+- **Slack Bolt (Python)**: Slackとの通信を担当
+- **Claude AI**: Anthropic社の大規模言語モデル
+- **Mastra Framework**: TypeScript製のAIエージェントフレームワーク
+- **MCP (Model Context Protocol)**: 外部ツールとの統合プロトコル
+- **Notion MCP Server**: Notionとの連携を可能にするサーバー
+
+## 主な機能
+
+### AIアシスタント機能
+- **Notion検索**: ページ、データベース、コメントの自然言語検索
+- **Notion編集**: ページの更新、データベースエントリの作成・編集
+- **高度な対話**: Claudeによる自然で文脈を理解した応答
+- **スレッド記憶**: 会話のコンテキストを保持（最大20メッセージ、24時間）
+
+### 基本機能
+- **検索コマンド**: 「検索」「探して」「調べて」で情報検索
+- **メンション応答**: ボットをメンションすると自動応答
+- **スレッド対応**: スレッド内での継続的な会話
+- **エラーハンドリング**: 包括的なエラー処理とフォールバック
+
 ## セットアップ
 
-### 1. 環境変数の設定
+### 1. 必要なAPIキーの取得
 
-`.env`ファイルを作成し、以下の環境変数を設定してください：
+以下のAPIキーを事前に取得してください：
+
+1. **Slack App**: [Slack API](https://api.slack.com/apps)でアプリを作成
+2. **Anthropic API**: [Anthropic Console](https://console.anthropic.com/)でAPIキーを取得
+3. **Notion API**: [Notion Developers](https://developers.notion.com/)で統合を作成
+
+### 2. 環境変数の設定
+
+`.env`ファイルを作成し、以下を設定：
 
 ```env
 # Slack設定
@@ -23,7 +55,7 @@ NOTION_API_KEY=your-notion-api-key
 AGENT_PORT=3001
 ```
 
-### 2. 依存関係のインストール
+### 3. 依存関係のインストール
 
 ```bash
 # Python依存関係
@@ -35,13 +67,13 @@ npm install
 cd ..
 ```
 
-### 3. 設定確認
+### 4. 設定確認
 
 ```bash
 python check_config.py
 ```
 
-### 4. サービスの起動
+### 5. サービスの起動
 
 ```bash
 # すべてのサービスを起動（推奨）
@@ -55,26 +87,9 @@ cd slack-mcp-agent && npm run server &
 python app.py
 ```
 
-## 機能
+## 使用方法
 
-### AIアシスタント機能
-- **Notion検索**: Notionのページ、データベース、コメントを検索
-- **Notion編集**: ページの更新、データベースエントリの作成・編集
-- **自然言語対話**: Claudeによる高度な自然言語理解と応答
-- **スレッド記憶**: 会話のコンテキストを保持（最大20メッセージ、24時間）
-
-### 基本機能
-- **検索コマンド**: 「検索」「探して」「調べて」で情報検索を開始
-- **メンション応答**: ボットをメンションすると自動的に検索・応答
-- **ヘルプ機能**: 「help」「ヘルプ」「助けて」でヘルプメッセージを表示
-- **スレッド対応**: スレッド内では自動的に会話を継続
-
-### 技術機能
-- **MCP統合**: Model Context Protocolによる外部ツール統合
-- **エラーハンドリング**: 包括的なエラー処理とフォールバック機能
-- **ツール検証**: Claude API互換性のためのMCPツールスキーマ検証
-
-## コマンド一覧
+### 基本的なコマンド
 
 | コマンド | 説明 | 例 |
 |---------|------|---|
@@ -90,28 +105,22 @@ python app.py
 # 基本的な検索
 検索 残っているタスク
 
+# 具体的な質問
+探して 今週の会議予定
+
 # メンションでの質問
-@bot 今週の会議予定を教えて
+@bot Notionから完了していないタスクを取得して
 
 # スレッドでの会話継続
-（スレッド内）詳細を教えて
+（スレッド内）それらのタスクの詳細を教えて
 ```
 
-## Slack App設定
+### スレッド機能
 
-1. [Slack API](https://api.slack.com/apps)でアプリを作成
-2. Socket Modeを有効化
-3. 必要な権限を設定：
-   - `chat:write`
-   - `app_mentions:read`
-   - `channels:history`
-   - `im:history`
-   - `mpim:history`
-4. イベントサブスクリプションで以下を追加：
-   - `message.channels`
-   - `message.im`
-   - `message.mpim`
-   - `app_mention`
+- スレッド内では@メンションなしで会話可能
+- 会話のコンテキストを自動的に保持
+- 最大20メッセージまで記憶
+- 24時間後に自動的にリセット
 
 ## アーキテクチャ
 
@@ -119,62 +128,136 @@ python app.py
 Slack Client
     ↓
 Slack Bot (Python + Bolt)
-    ↓
-Mastra Bridge (HTTP通信)
-    ↓
+    ↓ HTTP通信
+Mastra Bridge (Python)
+    ↓ HTTP通信
 Mastra Agent (Node.js)
-    ↓
-MCP Servers (Notion)
-    ↓
-External APIs (Notion API)
+    ↓ MCP
+Notion MCP Server
+    ↓ API
+Notion Service
 ```
+
+### コンポーネント説明
+
+1. **Slack Bot (app.py)**: Slackイベントの受信とユーザーとの対話
+2. **Mastra Bridge (mastra_bridge.py)**: PythonとNode.js間の通信橋渡し
+3. **Mastra Agent**: Claude AIとMCPツールを統合したエージェント
+4. **Notion MCP Server**: NotionAPIとの通信を担当
+5. **Thread Memory**: スレッド単位の会話コンテキスト管理
+
+## Slack App設定
+
+### 必要な権限 (OAuth Scopes)
+- `chat:write` - メッセージの送信
+- `app_mentions:read` - メンションの読み取り
+- `channels:history` - チャンネル履歴の読み取り
+- `im:history` - ダイレクトメッセージ履歴の読み取り
+- `mpim:history` - グループDM履歴の読み取り
+
+### イベントサブスクリプション
+- `message.channels` - チャンネルメッセージ
+- `message.im` - ダイレクトメッセージ
+- `message.mpim` - グループDM
+- `app_mention` - アプリメンション
+
+### Socket Mode
+Socket Modeを有効化してリアルタイム通信を設定してください。
 
 ## トラブルシューティング
 
 ### 設定確認
-```bash
-python check_config.py
-```
 
-### サービス状態確認
 ```bash
-# エージェントサーバーの確認
+# 基本設定の確認
+python check_config.py
+
+# エージェントサーバーの状態確認
 curl http://localhost:3001/api/health
 
-# MCPツールの確認
-cd slack-mcp-agent && node test_mcp_direct.js
+# MCPツールの動作確認
+cd slack-mcp-agent && npm run test:mcp
 ```
 
-### ログの確認
-- **Slack Bot**: コンソールに表示されるPythonログ
-- **Mastraエージェント**: Node.jsサーバーのログ
-- **MCP**: MCPサーバーの接続ログ
-
-### よくある問題
+### よくある問題と対処法
 
 #### 認証エラー
 - **ANTHROPIC_API_KEY**: Claude APIキーが正しく設定されているか確認
-- **NOTION_API_KEY**: Notion統合トークンが有効か確認
+- **NOTION_API_KEY**: Notion統合トークンが有効で、適切な権限があるか確認
 - **Slackトークン**: ボットトークンとアプリトークンが正しいか確認
 
 #### 接続エラー
 - **エージェントサーバー**: `http://localhost:3001`にアクセス可能か確認
 - **MCPサーバー**: Notion MCPサーバーが正常に起動しているか確認
-- **ネットワーク**: ファイアウォールやプロキシ設定を確認
+- **ファイアウォール**: ローカルポート3001が開放されているか確認
 
-#### ツールエラー
-- **スキーマ検証**: ツールバリデーターがMCPツールを正しく処理しているか確認
-- **API制限**: Claude APIやNotion APIの利用制限に達していないか確認
+#### 応答エラー
+- **API制限**: Claude APIやNotion APIの利用制限を確認
+- **ツール検証**: MCPツールスキーマの検証が正常に動作しているか確認
+- **メモリ**: スレッドメモリが正常に動作しているか確認
 
-### デバッグモード
+### ログの確認
+
 ```bash
-# 詳細ログ有効化
+# Slack Botのログ
+python app.py
+
+# Mastraエージェントのログ
+cd slack-mcp-agent && npm run server
+
+# デバッグモードでの実行
 export DEBUG=mastra:*
 npm run server
+```
 
+### デバッグ情報
+
+```bash
 # MCPツールの詳細確認
 node -e "
-const { debugTool } = require('./src/mastra/tool-validator.js');
-// ツールのデバッグ情報を出力
+const { getMCPTools } = require('./slack-mcp-agent/src/mastra/mcp.js');
+getMCPTools().then(tools => console.log(Object.keys(tools)));
+"
+
+# ツールスキーマの検証
+node -e "
+const { debugTool } = require('./slack-mcp-agent/src/mastra/tool-validator.js');
+// 特定のツールの詳細を確認
 "
 ```
+
+## 開発情報
+
+### 技術スタック
+- **Python 3.8+**: Slack Bot本体
+- **Node.js 18+**: Mastraエージェント
+- **TypeScript**: エージェントとツール開発
+- **Slack Bolt SDK**: Slack統合
+- **Mastra Framework**: AIエージェント構築
+- **MCP Protocol**: 外部ツール統合
+
+### ディレクトリ構造
+```
+slack-mcp-bot/
+├── app.py                    # メインのSlack Bot
+├── mastra_bridge.py          # Python-Node.js通信
+├── thread_memory.py          # スレッド記憶機能
+├── slack-mcp-agent/          # Node.js Mastraエージェント
+│   ├── src/
+│   │   ├── mastra/
+│   │   │   ├── agents/       # AIエージェント
+│   │   │   ├── mcp.ts        # MCP設定
+│   │   │   └── tool-validator.ts  # ツール検証
+│   │   └── server.ts         # HTTPサーバー
+├── .env                      # 環境変数
+└── requirements.txt          # Python依存関係
+```
+
+## 貢献
+
+このプロジェクトへの貢献を歓迎します：
+
+1. Issueの報告
+2. 機能の提案
+3. プルリクエストの送信
+4. ドキュメントの改善
