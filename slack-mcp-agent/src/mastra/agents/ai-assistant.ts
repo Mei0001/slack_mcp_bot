@@ -2,9 +2,11 @@ import { Agent } from "@mastra/core/agent";
 import { anthropic } from "@ai-sdk/anthropic";
 import { getMCPTools, getMCPToolsets } from "../mcp";
 import { validateMCPToolsForClaude } from "../tool-validator";
+import { AuthenticatedMCPClient } from "../authenticated-mcp";
+import { OAuthTokenManager } from "../../oauth/token-manager";
 
 // エージェントをMCPツールと共に作成する関数
-export async function createAIAssistant() {
+export async function createAIAssistant(userId?: string) {
   // Claudeモデルの設定（関数内で初期化してAPIキーを確実に取得）
   const apiKey = process.env.ANTHROPIC_API_KEY;
   
@@ -14,32 +16,75 @@ export async function createAIAssistant() {
     throw new Error("Anthropic API key is missing. Please set ANTHROPIC_API_KEY environment variable.");
   }
   
-  const claudeModel = anthropic('claude-sonnet-4-20250514', {
-    apiKey: apiKey
-  });
+  const claudeModel = anthropic('claude-sonnet-4-20250514');
   try {
     // MCPツールを取得（Mastraの推奨パターン）
     let tools = {};
+    let connectedServices: string[] = [];
+    
     try {
-      const rawMCPTools = await getMCPTools();
-      if (Object.keys(rawMCPTools).length > 0) {
-        console.log(`[Agent] Successfully loaded ${Object.keys(rawMCPTools).length} raw MCP tools`);
+      if (userId) {
+        // ユーザー認証済みMCPクライアントを使用
+        console.log(`[Agent] Creating authenticated MCP client for user ${userId}`);
+        const tokenManager = new OAuthTokenManager();
+        const authMCPClient = new AuthenticatedMCPClient({
+          userId,
+          tokenManager
+        });
         
-        // Claude/Anthropic互換性のためのツール検証・変換
-        tools = validateMCPToolsForClaude(rawMCPTools);
-        console.log(`[Agent] Validated ${Object.keys(tools).length} tools for Claude compatibility`);
-        
-        if (Object.keys(tools).length === 0) {
-          console.warn("[Agent] All MCP tools failed validation, continuing without tools");
+        const initialized = await authMCPClient.initialize();
+        if (initialized) {
+          const mcpClient = authMCPClient.getMCPClient();
+          if (mcpClient) {
+            const rawMCPTools = await mcpClient.getTools();
+            connectedServices = await authMCPClient.getConnectedServices();
+            
+            if (Object.keys(rawMCPTools).length > 0) {
+              console.log(`[Agent] Successfully loaded ${Object.keys(rawMCPTools).length} authenticated MCP tools for user ${userId}`);
+              tools = validateMCPToolsForClaude(rawMCPTools);
+              console.log(`[Agent] Validated ${Object.keys(tools).length} tools for Claude compatibility`);
+            }
+          }
+        } else {
+          console.log(`[Agent] No authenticated services for user ${userId}, falling back to default`);
         }
-      } else {
-        console.log("[Agent] No MCP tools loaded, continuing without tools");
+      }
+      
+      // フォールバック：ユーザー認証がない場合、デフォルトのMCPツールを使用
+      if (Object.keys(tools).length === 0 && !userId) {
+        const rawMCPTools = await getMCPTools();
+        if (Object.keys(rawMCPTools).length > 0) {
+          console.log(`[Agent] Successfully loaded ${Object.keys(rawMCPTools).length} default MCP tools`);
+          tools = validateMCPToolsForClaude(rawMCPTools);
+          console.log(`[Agent] Validated ${Object.keys(tools).length} tools for Claude compatibility`);
+        }
+      }
+      
+      if (Object.keys(tools).length === 0) {
+        console.warn("[Agent] No MCP tools available, continuing without tools");
       }
     } catch (toolError) {
       console.error("[Agent] Failed to load MCP tools:", toolError);
       console.log("[Agent] Continuing without tools...");
     }
     
+    // 接続されたサービスに基づいて指示を調整
+    let serviceInstructions = "";
+    if (connectedServices.length > 0) {
+      const serviceNames = connectedServices.map(s => 
+        s === 'notion' ? 'Notion' : 'Google Drive'
+      ).join('と');
+      serviceInstructions = `
+        現在、このユーザーは${serviceNames}に接続しています。
+        これらのサービスの情報を検索・編集することができます。
+      `;
+    } else if (userId) {
+      serviceInstructions = `
+        現在、このユーザーは外部サービスに接続していません。
+        サービス連携が必要な場合は、「/mcp」コマンドを使用するよう案内してください。
+      `;
+    }
+
     // エージェントを作成（MCPツールを統合）
     const agent = new Agent({
       name: "AI Assistant",
@@ -47,6 +92,8 @@ export async function createAIAssistant() {
       instructions: `
         あなたは優秀なAIアシスタントです。
         ユーザーからの質問や依頼に対して、利用可能なツールを使って適切に応答してください。
+        
+        ${serviceInstructions}
         
         主な機能：
         1. Notionの検索：ページ、データベース、ユーザー情報の検索
