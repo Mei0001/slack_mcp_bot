@@ -4,6 +4,10 @@ import requests
 import time
 import logging
 from typing import Optional, Dict, Any
+from dotenv import load_dotenv
+
+# 環境変数の読み込み
+load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,7 @@ class MastraBridge:
             # Gemini APIキーを環境変数から取得
             if 'GEMINI_API_KEY' in os.environ:
                 env['GOOGLE_GENERATIVE_AI_API_KEY'] = os.environ['GEMINI_API_KEY']
+                logger.info(f"[MastraBridge] Setting GOOGLE_GENERATIVE_AI_API_KEY: {os.environ['GEMINI_API_KEY'][:10]}...")
             
             # Notion APIキーも渡す
             if 'NOTION_API_KEY' in os.environ:
@@ -87,10 +92,10 @@ class MastraBridge:
         except:
             return False
     
-    def search(self, message: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
-        """検索リクエストを送信"""
+    def search(self, message: str, thread_id: Optional[str] = None, slack_user_id: Optional[str] = None) -> Dict[str, Any]:
+        """検索リクエストを送信（マルチテナント対応）"""
         try:
-            logger.info(f"[MastraBridge] Starting search request for message: {message[:50]}...")
+            logger.info(f"[MastraBridge] Starting search request for user {slack_user_id}: {message[:50]}...")
             
             if not self.is_running():
                 logger.error("[MastraBridge] Mastra agent server is not running")
@@ -100,7 +105,8 @@ class MastraBridge:
             
             payload = {
                 "message": message,
-                "threadId": thread_id
+                "threadId": thread_id,
+                "slackUserId": slack_user_id  # マルチテナント用のユーザーID
             }
             
             logger.info(f"[MastraBridge] Sending POST request to {self.base_url}/api/agent/search")
@@ -132,6 +138,46 @@ class MastraBridge:
         except Exception as e:
             logger.error(f"[MastraBridge] Error calling Mastra agent: {e}")
             logger.error(f"[MastraBridge] Exception type: {type(e).__name__}")
+            return {"error": str(e)}
+    
+    def get_accounts(self, slack_user_id: str) -> Dict[str, Any]:
+        """ユーザーのNotionアカウント一覧を取得"""
+        try:
+            if not self.is_running():
+                return {"error": "エージェントサーバーが起動していません"}
+            
+            response = requests.get(
+                f"{self.base_url}/api/accounts/{slack_user_id}",
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {"error": f"アカウント取得エラー: {response.status_code}"}
+                
+        except Exception as e:
+            logger.error(f"[MastraBridge] Error getting accounts: {e}")
+            return {"error": str(e)}
+    
+    def delete_account(self, slack_user_id: str, account_id: str) -> Dict[str, Any]:
+        """Notionアカウントを削除"""
+        try:
+            if not self.is_running():
+                return {"error": "エージェントサーバーが起動していません"}
+            
+            response = requests.delete(
+                f"{self.base_url}/api/accounts/{slack_user_id}/{account_id}",
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {"error": f"アカウント削除エラー: {response.status_code}"}
+                
+        except Exception as e:
+            logger.error(f"[MastraBridge] Error deleting account: {e}")
             return {"error": str(e)}
 
 # グローバルインスタンス

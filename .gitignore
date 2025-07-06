@@ -142,3 +142,14 @@ docs/_build/
 # Local configuration files
 config.local.*
 settings.local.*
+
+# Multi-tenant OAuth data
+data/
+test-data/
+*.session
+oauth_data/
+
+# Temporary test files
+test_*.js
+demo_*.js
+temp_*.js
