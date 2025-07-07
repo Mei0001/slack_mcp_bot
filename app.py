@@ -7,6 +7,15 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
 from mastra_bridge import mastra_bridge
 from thread_memory import thread_memory
+from slack_ui import (
+    create_mcp_services_blocks, 
+    create_service_status_blocks,
+    create_auth_in_progress_blocks,
+    create_auth_success_blocks,
+    create_auth_error_blocks,
+    generate_oauth_state,
+    generate_oauth_url
+)
 
 # 環境変数の読み込み
 load_dotenv()
@@ -94,10 +103,12 @@ def global_error_handler(error, body, logger):
     logger.info(f"Request body: {body}")
 
 # Mastraエージェントを呼び出す共通関数
-def process_message_with_mastra(message_text, thread_ts, say, user_id=None):
+def process_message_with_mastra(message_text, thread_ts, say, user_id=None, client=None):
     """Mastraエージェントでメッセージを処理する共通関数"""
-    # 処理中メッセージを送信
-    say("メッセージを処理しています... 💭", thread_ts=thread_ts)
+    # 処理中メッセージを送信（ローディングアニメーション付き）
+    loading_message = say("🔄 処理中... 検索を開始しています", thread_ts=thread_ts)
+    loading_ts = loading_message['ts']
+    
     logger.info(f"[Slack] Processing message: {message_text[:50]}...")
     
     try:
@@ -112,14 +123,43 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None):
         payload = {
             "message": message_text,
             "threadId": thread_ts,
-            "context": context if context else None
+            "context": context if context else None,
+            "userId": user_id  # SlackユーザーIDを追加
         }
+        
+        # 処理状況を更新
+        if client and loading_ts:
+            client.chat_update(
+                channel=thread_ts if ':' in thread_ts else message_text,
+                ts=loading_ts,
+                text="🔍 情報を検索しています..."
+            )
         
         # Mastraエージェントで処理
         result = mastra_bridge.search_with_payload(payload)
         
+        # ローディングメッセージを削除
+        if client and loading_ts:
+            try:
+                client.chat_delete(
+                    channel=thread_ts if ':' in thread_ts else message_text,
+                    ts=loading_ts
+                )
+            except:
+                pass  # 削除に失敗しても続行
+        
         if "error" in result:
-            error_msg = f"❌ エラーが発生しました: {result['error']}"
+            # エラーの種類に応じたメッセージを生成
+            error_detail = result['error']
+            if "タイムアウト" in error_detail:
+                error_msg = "⏱️ 処理がタイムアウトしました。もう一度お試しください。"
+            elif "接続できません" in error_detail:
+                error_msg = "🔌 サービスに接続できません。しばらくしてからお試しください。"
+            elif "認証" in error_detail or "auth" in error_detail.lower():
+                error_msg = "🔐 認証エラーが発生しました。`/mcp` コマンドでサービス連携を確認してください。"
+            else:
+                error_msg = f"❌ エラーが発生しました: {error_detail}"
+            
             say(error_msg, thread_ts=thread_ts)
             logger.error(f"[Slack] Error: {result['error']}")
         else:
@@ -128,7 +168,10 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None):
             # 警告がある場合は追加
             warning = result.get('warning')
             if warning:
-                response = f"⚠️ {warning}\n\n{response}"
+                if "MCPツール" in warning:
+                    response = f"⚠️ 一部機能が制限されています: {warning}\n\n{response}"
+                else:
+                    response = f"⚠️ {warning}\n\n{response}"
             
             say(response, thread_ts=thread_ts)
             
@@ -144,18 +187,18 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None):
 
 # 検索機能（Mastraエージェント統合）
 @app.message(re.compile(r"(search|検索|探して|調べて)"))
-def handle_search_message(message, say):
+def handle_search_message(message, say, client):
     """検索関連のメッセージをMastraエージェントで処理"""
     user_id = message['user']
     text = message['text']
     thread_ts = message.get('thread_ts', message['ts'])
     
-    process_message_with_mastra(text, thread_ts, say, user_id)
+    process_message_with_mastra(text, thread_ts, say, user_id, client)
     logger.info(f"Search request from user {user_id}")
 
 # メンションされた時の検索処理
 @app.event("app_mention")
-def handle_app_mention_events(body, say, logger):
+def handle_app_mention_events(body, say, logger, client):
     """ボットがメンションされた時の応答処理（Mastra統合版）"""
     event = body["event"]
     user_id = event["user"]
@@ -166,7 +209,7 @@ def handle_app_mention_events(body, say, logger):
     
     if mention_text:
         # メンションされた場合は全てMastraエージェントで処理
-        process_message_with_mastra(mention_text, thread_ts, say, user_id)
+        process_message_with_mastra(mention_text, thread_ts, say, user_id, client)
     else:
         # メンションだけで内容がない場合
         say("こんにちは！何かお手伝いできることはありますか？ 💬", thread_ts=thread_ts)
@@ -188,7 +231,7 @@ def handle_app_mention_events(body, say, logger):
 
 # スレッド内でのメンションなし応答
 @app.message("")
-def handle_thread_messages(message, say, logger):
+def handle_thread_messages(message, say, logger, client):
     """スレッド内でのメンションなしメッセージに応答"""
     # メンションチェック - メンションの場合はスキップ
     if "<@" in message.get('text', ''):
@@ -207,8 +250,181 @@ def handle_thread_messages(message, say, logger):
     text = message['text']
     
     # Mastraエージェントで処理
-    process_message_with_mastra(text, thread_ts, say, user_id)
+    process_message_with_mastra(text, thread_ts, say, user_id, client)
     logger.info(f"Thread message from user {user_id}")
+
+# Slash command handler for /mcp
+@app.command("/mcp")
+def handle_mcp_command(ack, body, client):
+    """Handle /mcp slash command"""
+    ack()
+    user_id = body["user_id"]
+    channel_id = body["channel_id"]
+    
+    # Create blocks for MCP services
+    blocks = []
+    blocks.extend(create_service_status_blocks(user_id))
+    blocks.extend(create_mcp_services_blocks())
+    
+    # Send ephemeral message
+    client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        blocks=blocks,
+        text="MCP サービス連携設定"
+    )
+    logger.info(f"MCP command from user {user_id}")
+
+# Button action handlers
+@app.action("connect_notion")
+def handle_connect_notion(ack, body, client):
+    """Handle Notion connection button"""
+    ack()
+    user_id = body["user"]["id"]
+    channel_id = body["channel"]["id"]
+    
+    # Generate OAuth state
+    state = generate_oauth_state(user_id, channel_id, "notion")
+    if not state:
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="❌ 認証の準備中にエラーが発生しました。もう一度お試しください。"
+        )
+        return
+    
+    # Generate OAuth URL
+    auth_url = generate_oauth_url("notion", state)
+    if not auth_url:
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="❌ Notion OAuth設定が見つかりません。管理者にお問い合わせください。"
+        )
+        return
+    
+    # Send auth URL
+    blocks = create_auth_in_progress_blocks("Notion")
+    blocks.append({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f"<{auth_url}|🔗 ここをクリックしてNotionと連携>"
+        }
+    })
+    
+    client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        blocks=blocks,
+        text="Notion認証を開始します"
+    )
+    logger.info(f"Notion OAuth started for user {user_id}")
+
+@app.action("connect_google_drive")
+def handle_connect_google_drive(ack, body, client):
+    """Handle Google Drive connection button"""
+    ack()
+    user_id = body["user"]["id"]
+    channel_id = body["channel"]["id"]
+    
+    # Generate OAuth state
+    state = generate_oauth_state(user_id, channel_id, "google-drive")
+    if not state:
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="❌ 認証の準備中にエラーが発生しました。もう一度お試しください。"
+        )
+        return
+    
+    # Generate OAuth URL
+    auth_url = generate_oauth_url("google-drive", state)
+    if not auth_url:
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="❌ Google Drive OAuth設定が見つかりません。管理者にお問い合わせください。"
+        )
+        return
+    
+    # Send auth URL
+    blocks = create_auth_in_progress_blocks("Google Drive")
+    blocks.append({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f"<{auth_url}|🔗 ここをクリックしてGoogle Driveと連携>"
+        }
+    })
+    
+    client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        blocks=blocks,
+        text="Google Drive認証を開始します"
+    )
+    logger.info(f"Google Drive OAuth started for user {user_id}")
+
+@app.action(re.compile(r"disconnect_(.*)"))
+def handle_disconnect_service(ack, body, client):
+    """Handle service disconnection"""
+    ack()
+    user_id = body["user"]["id"]
+    channel_id = body["channel"]["id"]
+    service_type = body["actions"][0]["value"]
+    
+    import requests
+    
+    # Call OAuth server to revoke tokens
+    try:
+        response = requests.post(
+            "http://localhost:5001/oauth/revoke",
+            json={"user_id": user_id, "service_type": service_type}
+        )
+        
+        if response.status_code == 200:
+            service_name = "Notion" if service_type == "notion" else "Google Drive"
+            client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=f"✅ {service_name}との連携を解除しました。"
+            )
+        else:
+            client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text="❌ 連携解除中にエラーが発生しました。"
+            )
+    except Exception as e:
+        logger.error(f"Disconnect service error: {e}")
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="❌ サーバーエラーが発生しました。"
+        )
+
+# Handle OAuth callback notifications
+@app.event("link_shared")
+def handle_link_shared(body, say, client):
+    """Handle OAuth callback deep links"""
+    event = body["event"]
+    links = event.get("links", [])
+    
+    for link in links:
+        url = link.get("url", "")
+        if "auth_success=true" in url and "service=" in url:
+            # Parse service type from URL
+            import urllib.parse
+            parsed = urllib.parse.urlparse(url)
+            params = urllib.parse.parse_qs(parsed.query)
+            service = params.get("service", ["unknown"])[0]
+            
+            service_name = "Notion" if service == "notion" else "Google Drive"
+            blocks = create_auth_success_blocks(service_name)
+            
+            # Post to channel
+            say(blocks=blocks, text=f"{service_name}連携完了")
 
 # アプリの起動
 if __name__ == "__main__":

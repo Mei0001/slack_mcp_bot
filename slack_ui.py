@@ -223,7 +223,7 @@ def generate_oauth_url(service_type: str, state: str) -> Optional[str]:
         'notion': {
             'auth_url': 'https://api.notion.com/v1/oauth/authorize',
             'client_id': os.getenv('NOTION_OAUTH_CLIENT_ID'),
-            'scopes': 'read_content,update_content,insert_content'
+            'scopes': ''  # Notion doesn't use explicit scopes in URL
         },
         'google-drive': {
             'auth_url': 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -235,22 +235,27 @@ def generate_oauth_url(service_type: str, state: str) -> Optional[str]:
     config = oauth_configs.get(service_type)
     if not config or not config['client_id']:
         logger.error(f"OAuth config not found for {service_type}")
+        logger.info(f"Environment variables: NOTION_OAUTH_CLIENT_ID={os.getenv('NOTION_OAUTH_CLIENT_ID', 'NOT_SET')}")
         return None
     
     params = {
         'client_id': config['client_id'],
         'redirect_uri': OAUTH_CALLBACK_URL,
         'response_type': 'code',
-        'state': state,
-        'scope': config['scopes']
+        'state': state
     }
     
     # Service-specific parameters
     if service_type == 'notion':
+        # Notion OAuth 2.0 specification requires 'owner=user' for public integrations
         params['owner'] = 'user'
+        # Notion doesn't use scope parameter in authorization URL
     elif service_type == 'google-drive':
+        params['scope'] = config['scopes']
         params['access_type'] = 'offline'
         params['prompt'] = 'consent'
     
     from urllib.parse import urlencode
-    return f"{config['auth_url']}?{urlencode(params)}"
+    auth_url = f"{config['auth_url']}?{urlencode(params)}"
+    logger.info(f"Generated {service_type} OAuth URL: {auth_url}")
+    return auth_url
