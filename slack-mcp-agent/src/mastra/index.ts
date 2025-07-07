@@ -12,8 +12,8 @@ dotenv.config();
 if (!process.env.NOTION_API_KEY) {
   console.warn('Warning: NOTION_API_KEY not set');
 }
-if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY && !process.env.GEMINI_API_KEY) {
-  console.error('Error: Neither GOOGLE_GENERATIVE_AI_API_KEY nor GEMINI_API_KEY is set');
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn('Warning: ANTHROPIC_API_KEY not set - Claude model will not work');
 }
 
 // エージェントの作成（非同期）
