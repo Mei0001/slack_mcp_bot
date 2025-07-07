@@ -129,11 +129,14 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None, clie
         
         # 処理状況を更新
         if client and loading_ts:
-            client.chat_update(
-                channel=thread_ts if ':' in thread_ts else message_text,
-                ts=loading_ts,
-                text="🔍 情報を検索しています..."
-            )
+            try:
+                client.chat_update(
+                    channel=loading_message['channel'],
+                    ts=loading_ts,
+                    text="🔍 情報を検索しています..."
+                )
+            except Exception as update_error:
+                logger.warning(f"Failed to update loading message: {update_error}")
         
         # Mastraエージェントで処理
         result = mastra_bridge.search_with_payload(payload)
@@ -142,11 +145,11 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None, clie
         if client and loading_ts:
             try:
                 client.chat_delete(
-                    channel=thread_ts if ':' in thread_ts else message_text,
+                    channel=loading_message['channel'],
                     ts=loading_ts
                 )
-            except:
-                pass  # 削除に失敗しても続行
+            except Exception as delete_error:
+                logger.warning(f"Failed to delete loading message: {delete_error}")
         
         if "error" in result:
             # エラーの種類に応じたメッセージを生成

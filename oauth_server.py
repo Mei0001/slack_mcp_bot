@@ -172,10 +172,13 @@ def store_tokens(user_id, service_type, token_data):
             'accessToken': token_data.get('access_token'),
             'refreshToken': token_data.get('refresh_token'),
             'expiresAt': expires_at.isoformat(),
+            'connectedAt': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'serviceType': service_type,
             'metadata': {
                 'workspace_id': token_data.get('workspace_id'),
                 'workspace_name': token_data.get('workspace_name'),
+                'workspace_icon': token_data.get('workspace_icon'),
+                'owner': token_data.get('owner', {}),
                 'bot_id': token_data.get('bot_id'),
                 'scope': token_data.get('scope')
             }

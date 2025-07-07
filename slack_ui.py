@@ -4,6 +4,10 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, Optional
+from dotenv import load_dotenv
+
+# 環境変数を明示的に読み込み
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +15,7 @@ logger = logging.getLogger(__name__)
 redis_client = redis.Redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379'))
 
 # OAuth callback URL
-OAUTH_CALLBACK_URL = os.getenv('OAUTH_REDIRECT_URI', 'http://localhost:5001/oauth/callback')
+OAUTH_CALLBACK_URL = os.getenv('OAUTH_REDIRECT_URI', 'https://mei0001.github.io/notion-auth-demo/redirect.html')
 
 def create_mcp_services_blocks() -> list:
     """Create blocks for MCP services selection"""
@@ -83,11 +87,18 @@ def create_service_status_blocks(user_id: str) -> list:
     else:
         for service in connected_services:
             status_emoji = "✅" if service['connected'] else "❌"
+            
+            # 表示テキストを構築
+            service_text = f"{status_emoji} *{service['name']}*"
+            if service.get('workspace_info'):
+                service_text += f"\n📁 ワークスペース: {service['workspace_info']}"
+            service_text += f"\n🕒 接続日時: {service['connected_at']}"
+            
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{status_emoji} *{service['name']}*\n接続日時: {service['connected_at']}"
+                    "text": service_text
                 },
                 "accessory": {
                     "type": "button",
@@ -180,11 +191,28 @@ def get_connected_services(user_id: str) -> list:
         
         if token_data:
             tokens = json.loads(token_data)
+            metadata = tokens.get('metadata', {})
+            
+            # ワークスペース情報を構築
+            workspace_info = ""
+            if service_type == 'notion':
+                workspace_name = metadata.get('workspace_name', '不明')
+                owner_info = metadata.get('owner', {})
+                if isinstance(owner_info, dict):
+                    owner_name = owner_info.get('user', {}).get('name', '不明') if owner_info.get('user') else '不明'
+                    workspace_info = f"{workspace_name} (所有者: {owner_name})"
+                else:
+                    workspace_info = workspace_name
+            elif service_type == 'google-drive':
+                # Google Drive用の情報構築（将来の実装）
+                workspace_info = metadata.get('workspace_name', 'Google Drive')
+            
             services.append({
                 'type': service_type,
                 'name': service_names.get(service_type, service_type),
                 'connected': True,
-                'connected_at': tokens.get('connectedAt', '不明')
+                'connected_at': tokens.get('connectedAt', '不明'),
+                'workspace_info': workspace_info
             })
     
     return services
@@ -219,10 +247,15 @@ def generate_oauth_state(user_id: str, channel_id: str, service_type: str) -> Op
 
 def generate_oauth_url(service_type: str, state: str) -> Optional[str]:
     """Generate OAuth authorization URL"""
+    # 環境変数のデバッグ出力
+    notion_client_id = os.getenv('NOTION_OAUTH_CLIENT_ID')
+    logger.info(f"[OAuth URL Generation] Service: {service_type}")
+    logger.info(f"[OAuth URL Generation] NOTION_OAUTH_CLIENT_ID from env: {notion_client_id}")
+    
     oauth_configs = {
         'notion': {
             'auth_url': 'https://api.notion.com/v1/oauth/authorize',
-            'client_id': os.getenv('NOTION_OAUTH_CLIENT_ID'),
+            'client_id': notion_client_id,
             'scopes': ''  # Notion doesn't use explicit scopes in URL
         },
         'google-drive': {
@@ -233,9 +266,12 @@ def generate_oauth_url(service_type: str, state: str) -> Optional[str]:
     }
     
     config = oauth_configs.get(service_type)
+    logger.info(f"[OAuth URL Generation] Config for {service_type}: {config}")
+    
     if not config or not config['client_id']:
         logger.error(f"OAuth config not found for {service_type}")
-        logger.info(f"Environment variables: NOTION_OAUTH_CLIENT_ID={os.getenv('NOTION_OAUTH_CLIENT_ID', 'NOT_SET')}")
+        logger.error(f"Config: {config}")
+        logger.error(f"Client ID: {config.get('client_id') if config else 'No config'}")
         return None
     
     params = {
