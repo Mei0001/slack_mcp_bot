@@ -142,3 +142,5 @@ docs/_build/
 # Local configuration files
 config.local.*
 settings.local.*
+
+cloudflare-migration-guide.md
