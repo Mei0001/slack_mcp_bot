@@ -27,19 +27,17 @@ app.get('/api/health', (req, res) => {
 // エージェント検索エンドポイント
 app.post('/api/agent/search', async (req, res) => {
   try {
-    const { message, threadId, context } = req.body;
+    const { message, threadId, context, userId } = req.body;
     
-    console.log(`[Server] Received search request: ${message?.substring(0, 50)}...`);
+    console.log(`[Server] Received search request from user ${userId}: ${message?.substring(0, 50)}...`);
     
     if (!message) {
       return res.status(400).json({ error: 'メッセージが必要です' });
     }
 
-    // エージェントが未初期化の場合は取得
-    if (!agent) {
-      console.log('[Server] Initializing AI Assistant...');
-      agent = await getAIAssistant();
-    }
+    // ユーザーごとにエージェントを初期化（認証済みMCPツールを使用）
+    console.log(`[Server] Initializing AI Assistant for user ${userId}...`);
+    agent = await getAIAssistant(userId);
 
     // メッセージにコンテキストがある場合は結合
     let fullMessage = message;

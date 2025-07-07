@@ -4,20 +4,11 @@ import { MCPClient } from "@mastra/mcp";
 export const mcp = new MCPClient({
   servers: {
     // Notion MCP Server
-    notion: {
-      command: "npx",
-      args: ["-y", "@notionhq/notion-mcp-server"],
-      env: {
-        "NOTION_API_KEY": process.env.NOTION_API_KEY,
-        // Notion MCPサーバーの設定
-        "OPENAPI_MCP_HEADERS": JSON.stringify({
-          "Authorization": `Bearer ${process.env.NOTION_API_KEY}`,
-          "Notion-Version": "2022-06-28"
-        })
-      },
-      timeout: 30000, // 30秒タイムアウト
-      enableServerLogs: true
-    },
+      notion: {
+        "type": "http",
+        "url": "https://mcp.notion.com/mcp"
+      }
+  },
     // 将来的にGoogle Drive MCPサーバーを追加
     // googleDrive: {
     //   command: "npx",
@@ -29,7 +20,7 @@ export const mcp = new MCPClient({
     //   },
     //   timeout: 30000
     // }
-  },
+  
   timeout: 60000 // グローバルタイムアウト
 });
 
