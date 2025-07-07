@@ -450,18 +450,3 @@ curl -f http://localhost:3001/health || alert "Agent down"
 npm run dev          # Mastra Agent (ホットリロード)
 python app.py --dev  # Slack Bot (デバッグモード)
 ```
-
-## 📄 ライセンス
-
-このプロジェクトはMITライセンスの下で公開されています。
-
-## 🙏 謝辞
-
-- [Anthropic](https://anthropic.com/) - Claude AIの提供
-- [Mastra](https://mastra.ai/) - AIエージェントフレームワーク
-- [Slack](https://slack.com/) - プラットフォーム統合
-- [Notion](https://notion.so/) - データ管理プラットフォーム
-
----
-
-**🤖 Generated with [Claude Code](https://claude.ai/code)**
