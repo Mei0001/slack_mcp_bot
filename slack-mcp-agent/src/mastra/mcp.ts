@@ -1,77 +1,34 @@
 import { MCPClient } from "@mastra/mcp";
 
-// MCPクライアントの設定（複数のサーバーをサポート）
+// レガシーMCPクライアント（非認証）- 現在は使用しない
+// OAuth 2.0実装により、AuthenticatedMCPClientを使用
 export const mcp = new MCPClient({
   servers: {
-    // Notion MCP Server
-      notion: {
-        "type": "http",
-        "url": "https://mcp.notion.com/mcp"
-      }
-  },
-    // 将来的にGoogle Drive MCPサーバーを追加
-    // googleDrive: {
-    //   command: "npx",
-    //   args: ["-y", "@google/drive-mcp-server"],
-    //   env: {
-    //     "GOOGLE_CLIENT_ID": process.env.GOOGLE_CLIENT_ID,
-    //     "GOOGLE_CLIENT_SECRET": process.env.GOOGLE_CLIENT_SECRET,
-    //     "GOOGLE_REFRESH_TOKEN": process.env.GOOGLE_REFRESH_TOKEN
-    //   },
-    //   timeout: 30000
+    // 注意: このクライアントは認証なしでの接続のため現在無効化
+    // OAuth 2.0トークンを使用する場合はAuthenticatedMCPClientを使用
+    // notion: {
+    //   "type": "http", 
+    //   "url": "https://mcp.notion.com/mcp"
     // }
-  
+  },
   timeout: 60000 // グローバルタイムアウト
 });
 
-// MCPツールを取得する関数（Mastraの推奨パターン）
+// レガシーMCPツールを取得する関数（非認証・現在は使用しない）
 export async function getMCPTools() {
-  try {
-    console.log("[MCP] Loading tools from MCP servers...");
-    const tools = await mcp.getTools();
-    console.log(`[MCP] Loaded ${Object.keys(tools).length} tools from all servers`);
-    
-    // ツール名を表示
-    Object.keys(tools).forEach(toolName => {
-      console.log(`[MCP] Available tool: ${toolName}`);
-    });
-    
-    return tools;
-  } catch (error) {
-    console.error("[MCP] Failed to load tools:", error);
-    return {};
-  }
+  console.warn("[MCP] getMCPTools() is deprecated. Use AuthenticatedMCPClient instead for OAuth 2.0 support.");
+  console.log("[MCP] No default MCP servers configured for security reasons.");
+  return {};
 }
 
-// MCPツールセットを取得する関数（Mastraの推奨パターン）
+// レガシーMCPツールセットを取得する関数（非認証・現在は使用しない）
 export async function getMCPToolsets() {
-  try {
-    console.log("[MCP] Loading toolsets from MCP servers...");
-    const toolsets = await mcp.getToolsets();
-    console.log(`[MCP] Loaded toolsets for ${Object.keys(toolsets).length} servers`);
-    
-    // サーバー名を表示
-    Object.keys(toolsets).forEach(serverName => {
-      const serverTools = toolsets[serverName];
-      console.log(`[MCP] Server "${serverName}" has ${Object.keys(serverTools).length} tools`);
-    });
-    
-    return toolsets;
-  } catch (error) {
-    console.error("[MCP] Failed to load toolsets:", error);
-    return {};
-  }
+  console.warn("[MCP] getMCPToolsets() is deprecated. Use AuthenticatedMCPClient instead for OAuth 2.0 support.");
+  return {};
 }
 
-// MCPリソースを取得する関数
+// レガシーMCPリソースを取得する関数（非認証・現在は使用しない）
 export async function getMCPResources() {
-  try {
-    console.log("[MCP] Loading resources from MCP servers...");
-    const resources = await mcp.getResources();
-    console.log(`[MCP] Loaded resources from ${Object.keys(resources).length} servers`);
-    return resources;
-  } catch (error) {
-    console.error("[MCP] Failed to load resources:", error);
-    return {};
-  }
+  console.warn("[MCP] getMCPResources() is deprecated. Use AuthenticatedMCPClient instead for OAuth 2.0 support.");
+  return {};
 }
