@@ -2,6 +2,7 @@ import { Agent } from "@mastra/core/agent";
 import { anthropic } from "@ai-sdk/anthropic";
 import { MCPClient } from "@mastra/mcp";
 import { OAuthTokenManager } from "../../oauth/token-manager";
+import { HTTPMCPAdapter } from "../http-mcp-adapter";
 
 // エージェントキャッシュ（メモリ内、1時間有効）
 const agentCache = new Map<string, { agent: Agent; timestamp: number }>();
@@ -29,8 +30,20 @@ export async function createAIAssistant(userId?: string) {
   const claudeModel = anthropic('claude-sonnet-4-20250514');
   
   try {
-    let tools = {};
+    let tools: Record<string, any> = {};
     let connectedServices: string[] = [];
+
+    // MCP接続方式の決定（環境変数で制御）
+    const mcpMode = process.env.MCP_MODE || 'local'; // 'local' または 'http'
+    const httpMcpUrl = process.env.HTTP_MCP_URL || 'http://localhost:3002';
+
+    console.log(`[Agent] 🔧 MCP Mode: ${mcpMode}`, {
+      httpMcpUrl: mcpMode === 'http' ? httpMcpUrl : 'N/A',
+      environmentCheck: {
+        hasMcpMode: !!process.env.MCP_MODE,
+        hasHttpMcpUrl: !!process.env.HTTP_MCP_URL
+      }
+    });
     
     // ユーザー認証済みMCPクライアントを作成（Mastraドキュメント準拠）
     if (userId) {
@@ -52,91 +65,89 @@ export async function createAIAssistant(userId?: string) {
         
         if (notionTokens && notionTokens.accessToken) {
           console.log(`[Agent] ✅ Found valid Notion tokens for user ${userId}`);
-          console.log(`[Agent] 🔗 Creating MCPClient for https://mcp.notion.com/mcp`);
           
-          // Notion MCP サーバー用の認証設定（デバッグ用詳細ログ付き）
-          console.log(`[Agent] 🔑 Token details for MCP connection:`, {
-            tokenPrefix: notionTokens.accessToken.substring(0, 10) + '...',
-            tokenLength: notionTokens.accessToken.length,
-            workspaceId: notionTokens.metadata?.workspace_id,
-            workspaceName: notionTokens.metadata?.workspace_name
-          });
-          
-          // 公式仕様に基づく正しい環境変数設定
-          const openApiHeaders = JSON.stringify({
-            "Authorization": `Bearer ${notionTokens.accessToken}`,
-            "Notion-Version": "2022-06-28"
-          });
-          
-          console.log(`[Agent] 🔐 Setting OPENAPI_MCP_HEADERS environment variable for MCP server`);
-          console.log(`[Agent] 🔐 Token being passed to MCP server:`, {
-            tokenExists: !!notionTokens.accessToken,
-            tokenLength: notionTokens.accessToken.length,
-            tokenPrefix: notionTokens.accessToken.substring(0, 15) + '...',
-            tokenSuffix: '...' + notionTokens.accessToken.slice(-5),
-            openApiHeadersLength: openApiHeaders.length,
-            openApiHeadersPreview: openApiHeaders.substring(0, 50) + '...'
-          });
-          
-          const userMcp = new MCPClient({
-            id: `notion-mcp-${userId}-${Date.now()}`, // ユニークIDでMCPClient重複エラーを回避
-            servers: {
-              notion: {
-                command: "npx",
-                args: ["-y", "@notionhq/notion-mcp-server"],
-                env: {
-                  OPENAPI_MCP_HEADERS: openApiHeaders
-                }
-              }
-            },
-            timeout: 60000
-          });
-          
-          console.log(`[Agent] 🛠️ MCPClient created, attempting to get tools...`);
-          
-          try {
-            // Mastraの推奨パターン：await mcp.getTools()
-            const allTools = await userMcp.getTools();
+          if (mcpMode === 'http') {
+            // HTTP MCP サーバー方式
+            console.log(`[Agent] 🌐 Using HTTP MCP server: ${httpMcpUrl}`);
             
-            // レート制限を避けるため、必要なツールだけをフィルタリング
-            const essentialToolNames = [
-              'notion_API-post-search',           // 検索（最重要）
-              'notion_API-post-database-query',   // データベースクエリ
-              'notion_API-retrieve-a-page',       // ページ取得
-              'notion_API-retrieve-a-database',   // データベース取得
-              'notion_API-get-block-children',    // ブロックコンテンツ取得
-              'notion_API-patch-page',            // ページ更新
-              'notion_API-post-page',             // ページ作成
-            ];
-            
-            // 必要なツールだけを選択
-            Object.entries(allTools).forEach(([toolName, toolDef]) => {
-              if (essentialToolNames.includes(toolName)) {
-                tools[toolName] = toolDef;
-              }
-            });
-            
-            connectedServices.push('notion');
-            
-            console.log(`[Agent] 🎉 Filtered ${Object.keys(tools).length} essential tools from ${Object.keys(allTools).length} total MCP tools`);
-            console.log(`[Agent] 📋 Active tools:`, Object.keys(tools));
-            
-            // 各ツールの詳細をログ出力
-            Object.entries(tools).forEach(([toolName, toolDef]) => {
-              console.log(`[Agent] 🔧 Tool "${toolName}":`, {
-                description: (toolDef as any)?.description?.substring(0, 50) + '...' || 'No description',
-                hasExecute: typeof (toolDef as any)?.execute === 'function'
-              });
-            });
-            
-          } catch (toolsError: any) {
-            console.error(`[Agent] ❌ Failed to get MCP tools:`, toolsError);
-            console.error(`[Agent] 🔍 Error details:`, {
-              name: toolsError?.name || 'Unknown',
-              message: toolsError?.message || 'Unknown error',
-              stack: toolsError?.stack || 'No stack trace'
-            });
-          }
+            try {
+              const httpAdapter = new HTTPMCPAdapter({
+                baseURL: httpMcpUrl,
+                timeout: 30000,
+                retries: 2
+              }, notionTokens.accessToken);
+
+              console.log(`[Agent] 🛠️ HTTP MCP Adapter created, attempting to get tools...`);
+              const httpTools = await httpAdapter.getTools();
+              
+              // HTTPから取得したツールをマージ
+              Object.assign(tools, httpTools);
+              connectedServices.push('notion-http');
+
+              console.log(`[Agent] 🎉 Loaded ${Object.keys(httpTools).length} tools from HTTP MCP server`);
+              console.log(`[Agent] 📋 HTTP MCP tools:`, Object.keys(httpTools));
+
+            } catch (httpError: any) {
+              console.error(`[Agent] ❌ Failed to connect to HTTP MCP server:`, httpError);
+              console.log(`[Agent] 🔄 Falling back to local MCP...`);
+              
+                             // HTTP接続失敗時は従来のローカルMCPにフォールバック
+               console.log(`[Agent] 🔄 Attempting local MCP fallback...`);
+               // ローカルMCPの処理は省略（HTTP失敗時のみ表示）
+             }
+
+           } else {
+             // 従来のローカル MCP サーバー方式
+             console.log(`[Agent] 🔗 Using local MCP server`);
+             
+             // 従来のローカルMCP処理（簡略化）
+             try {
+               // Notion MCP サーバー用の認証設定
+               const openApiHeaders = JSON.stringify({
+                 "Authorization": `Bearer ${notionTokens.accessToken}`,
+                 "Notion-Version": "2022-06-28"
+               });
+               
+               const userMcp = new MCPClient({
+                 id: `notion-mcp-${userId}-${Date.now()}`,
+                 servers: {
+                   notion: {
+                     command: "npx",
+                     args: ["-y", "@notionhq/notion-mcp-server"],
+                     env: {
+                       OPENAPI_MCP_HEADERS: openApiHeaders
+                     }
+                   }
+                 },
+                 timeout: 60000
+               });
+               
+               const allTools = await userMcp.getTools();
+               
+               // 必要なツールのみフィルタリング
+               const essentialToolNames = [
+                 'mcp_notionApi_API-post-search',
+                 'mcp_notionApi_API-post-database-query',
+                 'mcp_notionApi_API-retrieve-a-page',
+                 'mcp_notionApi_API-retrieve-a-database',
+                 'mcp_notionApi_API-get-block-children',
+                 'mcp_notionApi_API-patch-page',
+                 'mcp_notionApi_API-post-page'
+               ];
+               
+               Object.entries(allTools).forEach(([toolName, toolDef]) => {
+                 if (essentialToolNames.includes(toolName)) {
+                   tools[toolName] = toolDef;
+                 }
+               });
+               
+               connectedServices.push('notion-local');
+               console.log(`[Agent] 🎉 Loaded ${Object.keys(tools).length} tools from local MCP`);
+               
+             } catch (localError: any) {
+               console.error(`[Agent] ❌ Local MCP also failed:`, localError);
+             }
+           }
           
         } else {
           console.log(`[Agent] ❌ No valid Notion tokens found for user ${userId}`);

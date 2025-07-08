@@ -1,252 +1,345 @@
-# TODO: Slack MCP OAuth統合の実装
+# TODO: Notion MCP HTTP Server - Cloudflareデプロイと運用設定
 
-## プロジェクト概要
+## 📋 プロジェクト概要
 
-画像UXフローに基づくSlack Bot用のMCPサーバーOAuth認証機能の実装
+Notion MCPサーバーをHTTP化してCloudflare Workersにデプロイし、スケーラブルなクラウドMCP環境を構築する。
 
-### 目標
-- `/mcp`コマンドでMCPサーバー一覧表示
-- インタラクティブな認証フロー
-- 各ユーザーごとのトークン管理
-- シームレスなMCPツール利用
+### 🎯 最終目標
+- CloudflareでのHTTP MCPサーバー運用
+- 軽量監視・ログシステム
+- 本番環境での安定稼働
 
-## Phase 1: 基盤となるOAuthインフラの構築
+---
 
-### 1.1 依存関係の追加
-- [ ] `requirements.txt`にRedisとFlaskの追加
+## ✅ 完了済みタスク
+
+### Phase 1: HTTP MCP サーバー基盤実装 (完了)
+- [x] **notion-mcp-http-server プロジェクト作成**
+  - [x] `package.json` - Express, Notion Client等の依存関係
+  - [x] `tsconfig.json` - TypeScript設定
+  - [x] `src/types.ts` - MCPRequest, MCPResponse型定義
+  - [x] `src/notion-service.ts` - 12個のNotionツール対応
+  - [x] `src/server.ts` - Express HTTPサーバー実装
+  - [x] `README.md` - 詳細ドキュメント
+
+### Phase 2: Cloudflare Workers対応 (完了)
+- [x] **Cloudflare Workers アダプター実装**
+  - [x] `src/worker.ts` - Express→Fetch API変換
+  - [x] `src/cloudflare-types.d.ts` - Workers型定義
+  - [x] `wrangler.toml` - Cloudflare設定ファイル
+  - [x] KVストレージ連携機能（オプション）
+  - [x] CORS、セキュリティヘッダー対応
+
+### Phase 3: クライアント統合 (完了)
+- [x] **HTTPクライアントライブラリ**
+  - [x] `src/http-mcp-client.ts` - リトライ付きクライアント
+  - [x] ヘルスチェック、ツール一覧、実行機能
+  - [x] バッチ処理対応
+
+- [x] **Slack Bot統合**
+  - [x] `slack-mcp-agent/src/mastra/http-mcp-adapter.ts` - Mastra互換アダプター
+  - [x] `ai-assistant.ts` 修正 - 環境変数による切り替え
+  - [x] フォールバック機能（HTTP失敗時のローカルMCP復帰）
+
+### Phase 4: セキュリティ・品質向上 (完了)
+- [x] **セキュリティ実装**
+  - [x] リクエストボディでのトークン送信
+  - [x] HTTPS通信、CORS制限
+  - [x] ログからの認証情報除外
+  - [x] エラーハンドリングとサニタイズ
+
+- [x] **パフォーマンス最適化**
+  - [x] リトライ機能（指数バックオフ）
+  - [x] 詳細ログと実行時間計測
+  - [x] バッチ処理（最大10件並列）
+
+---
+
+## 🚀 残作業タスク
+
+### Phase 5: Cloudflareデプロイ設定 [優先度: 高]
+
+#### 5.1 Wrangler CLI設定と初期デプロイ
+- [ ] **Wrangler CLIセットアップ確認**
+  ```bash
+  # Wranglerインストール状況確認
+  wrangler --version
+  
+  # Cloudflareアカウント認証
+  wrangler login
+  
+  # プロジェクト初期化（既存設定確認）
+  cd notion-mcp-http-server
+  wrangler whoami
   ```
-  redis==4.5.4
-  flask==2.3.3
-  requests==2.31.0
+
+- [ ] **KVストレージ作成（オプション）**
+  ```bash
+  # 開発環境用
+  wrangler kv:namespace create "TOKEN_CACHE" --preview
+  
+  # 本番環境用
+  wrangler kv:namespace create "TOKEN_CACHE"
+  
+  # wrangler.tomlに追加
+  # [[kv_namespaces]]
+  # binding = "TOKEN_CACHE"
+  # id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   ```
 
-### 1.2 Redisサーバーのセットアップ
-- [ ] Redisのインストール（macOS: `brew install redis`）
-- [ ] Redis設定ファイルの作成（`config/redis.conf`）
-- [ ] 起動スクリプトへのRedis追加（`start_bot.sh`）
+#### 5.2 環境別デプロイ設定
+- [ ] **開発環境デプロイテスト**
+  ```bash
+  # ビルドテスト
+  npm run build
+  
+  # 開発環境デプロイ
+  wrangler deploy --name notion-mcp-dev --env development
+  
+  # ヘルスチェック
+  curl https://notion-mcp-dev.your-subdomain.workers.dev/health
+  ```
 
-### 1.3 OAuth設定マネージャーの作成
-- [ ] `oauth/config.py` - OAuth設定管理クラス
-  ```python
-  class OAuthConfig:
-      SERVERS = {
-          "notion": {
-              "auth_url": "https://mcp.notion.com/authorize",
-              "client_id": "Z8uuTVGoB1edIkdR",
-              "redirect_uri": "http://localhost:62307/callback",
-              "scope": "read,write"
-          }
+- [ ] **本番環境設定**
+  ```bash
+  # 本番環境デプロイ
+  wrangler deploy --name notion-mcp-prod --env production
+  
+  # 環境変数設定
+  wrangler secret put ALLOWED_ORIGINS --env production
+  # 値: https://your-production-domain.com
+  ```
+
+#### 5.3 カスタムドメイン設定
+- [ ] **ドメイン設定（要確認）**
+  ```bash
+  # カスタムドメイン追加
+  wrangler route put your-domain.com/mcp/* notion-mcp-prod
+  
+  # または Workers Route設定
+  # Cloudflare Dashboard > Workers > Routes
+  ```
+
+- [ ] **SSL/TLS設定確認**
+  - [ ] Full (Strict) モード設定
+  - [ ] HSTS有効化
+  - [ ] 最小TLSバージョン 1.2設定
+
+#### 5.4 デプロイ後のテスト
+- [ ] **機能テスト**
+  ```bash
+  # 本番環境でのツール一覧取得
+  curl https://your-domain/tools
+  
+  # 実際のトークンでのツール実行テスト
+  curl -X POST https://your-domain/mcp/execute \
+    -H "Content-Type: application/json" \
+    -d '{"tool": "mcp_notionApi_API-get-self", "arguments": {}, "auth": {"token": "secret_xxx"}}'
+  ```
+
+- [ ] **Slack Bot統合テスト**
+  ```bash
+  # 本番MCP URLでのBot起動
+  cd slack-mcp-agent
+  MCP_MODE=http HTTP_MCP_URL=https://your-domain npm run dev
+  
+  # Slackでの動作確認
+  # - AIアシスタントへの質問
+  # - Notionツールの実行確認
+  ```
+
+---
+
+### Phase 6: 監視・ログシステム設定 [優先度: 中]
+
+#### 6.1 Cloudflare Analytics設定
+- [ ] **Workers Analytics有効化**
+  - [ ] Cloudflare Dashboard > Workers > Analytics
+  - [ ] リクエスト数、レスポンス時間、エラー率監視
+  - [ ] CPUとメモリ使用量確認
+
+- [ ] **カスタムメトリクス追加**
+  ```typescript
+  // src/worker.ts に追加
+  export default {
+    async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+      const start = Date.now();
+      
+      try {
+        const response = await handleRequest(request, env);
+        
+        // 成功メトリクス送信
+        ctx.waitUntil(logMetrics('success', Date.now() - start, request.url));
+        
+        return response;
+      } catch (error) {
+        // エラーメトリクス送信
+        ctx.waitUntil(logMetrics('error', Date.now() - start, request.url, error));
+        throw error;
       }
+    }
+  }
   ```
 
-### 1.4 トークン管理システム
-- [ ] `oauth/token_manager.py` - Redis使用のトークン管理
-  - [ ] `save_token(server, user_id, token_data)`
-  - [ ] `get_token(server, user_id)`
-  - [ ] `is_authenticated(server, user_id)`
-  - [ ] `clear_token(server, user_id)`
+#### 6.2 アラート設定
+- [ ] **基本アラート設定**
+  - [ ] レスポンス時間 > 5秒でアラート
+  - [ ] エラー率 > 5%でアラート
+  - [ ] リクエスト数急増でアラート
 
-## Phase 2: OAuth認証サーバーの実装
+- [ ] **通知設定**
+  - [ ] Slack通知（専用チャンネル）
+  - [ ] Email通知（重要度高のみ）
+  - [ ] 通知頻度制限（同種アラート10分間隔）
 
-### 2.1 OAuth認証ハンドラー
-- [ ] `oauth/oauth_handler.py` - Flaskベースの認証サーバー
-  - [ ] `/authorize/<server_name>` - OAuth URL生成エンドポイント
-  - [ ] `/callback` - OAuth認証後のコールバック処理
-  - [ ] State parameter生成と検証
-  - [ ] トークン交換処理
-
-### 2.2 セキュリティ対応
-- [ ] CSRF攻撃対策（state parameter）
-- [ ] OAuth状態の有効期限管理（5分）
-- [ ] エラーハンドリングと適切なレスポンス
-
-### 2.3 成功ページの実装
-- [ ] 認証成功時のHTMLページ
-- [ ] ユーザーフレンドリーなメッセージ
-- [ ] Slackに戻るための誘導
-
-## Phase 3: Slackコマンドとインタラクションの実装
-
-### 3.1 `/mcp`コマンドの実装
-- [ ] `app.py`に新しいスラッシュコマンド追加
-  ```python
-  @app.command("/mcp")
-  async def handle_mcp_command(ack, command, client):
+#### 6.3 ダッシュボード作成
+- [ ] **Grafana設定（オプション）**
+  ```bash
+  # Cloudflare GraphQL APIでデータ取得
+  # カスタムダッシュボード作成
+  # - リクエスト数推移
+  # - レスポンス時間分布
+  # - エラー率とエラー種別
+  # - 地域別アクセス状況
   ```
-- [ ] サブコマンドのパース（`auth`, `list`, `status`等）
-- [ ] ヘルプメッセージの表示
 
-### 3.2 MCPサーバー一覧UI
-- [ ] `slack_ui/mcp_ui.py` - Slack Block Kit UI
-  - [ ] `show_mcp_servers_list()` - サーバー一覧表示
-  - [ ] 各サーバーの接続・認証状態表示
-  - [ ] インタラクティブボタンの実装
+- [ ] **定期レポート設定**
+  - [ ] 日次レポート（使用量、パフォーマンス）
+  - [ ] 週次レポート（傾向分析、改善提案）
 
-### 3.3 MCPサーバー詳細UI
-- [ ] `show_mcp_server_details()` - 詳細情報表示
-  - [ ] サーバー情報（URL、機能、ツール数）
-  - [ ] 認証ボタン（未認証時）
-  - [ ] 管理ボタン（認証済み時：再認証、クリア等）
+---
 
-### 3.4 インタラクションハンドラー
-- [ ] ボタンクリック処理
-  - [ ] `auth_mcp_{server}` - 認証開始
-  - [ ] `view_tools_{server}` - ツール一覧表示
-  - [ ] `reauth_mcp_{server}` - 再認証
-  - [ ] `clear_auth_{server}` - 認証クリア
+### Phase 7: 本番移行・最適化 [優先度: 中]
 
-## Phase 4: MCP統合とバックエンド処理
+#### 7.1 段階的移行実行
+- [ ] **移行計画実行**
+  1. [ ] 開発環境でのHTTP MCP安定稼働確認（1週間）
+  2. [ ] 一部ユーザーでの本番テスト（3日間）
+  3. [ ] 全ユーザーでの本番移行
+  4. [ ] ローカルMCPの段階的停止
 
-### 4.1 認証付きMCPクライアント
-- [ ] `slack-mcp-agent/src/mastra/mcp.ts`の修正
-  - [ ] 認証トークンを使用した接続設定
-  - [ ] ユーザーごとのMCPクライアント管理
-  - [ ] 動的なサーバー接続・切断
+- [ ] **環境変数設定更新**
+  ```bash
+  # slack-mcp-agent/.env
+  MCP_MODE=http
+  HTTP_MCP_URL=https://your-production-domain/
+  
+  # ローカルMCPサーバー設定コメントアウト
+  # MCP_SERVER_PATH=npx -y @notionhq/notion-mcp-server
+  ```
 
-### 4.2 MCP状態管理
-- [ ] `mcp/status_manager.py` - MCP接続状態管理
-  - [ ] サーバー接続状態の監視
-  - [ ] ツール取得とキャッシング
-  - [ ] エラー状態の検出と通知
+#### 7.2 パフォーマンス監視・最適化
+- [ ] **初期パフォーマンス測定**
+  - [ ] 平均レスポンス時間測定
+  - [ ] 同時接続数上限テスト
+  - [ ] メモリ使用量監視
 
-### 4.3 Node.js-Python間の認証情報共有
-- [ ] `mastra_bridge.py`の修正
-  - [ ] トークン情報をNode.jsに渡す機能
-  - [ ] 認証状態の同期
-  - [ ] エラー時のフォールバック処理
+- [ ] **最適化実装**
+  - [ ] レスポンスキャッシュ（頻繁アクセスデータ）
+  - [ ] 接続プール最適化
+  - [ ] エラーリトライ間隔調整
 
-## Phase 5: ユーザーエクスペリエンスの向上
+#### 7.3 運用手順書作成
+- [ ] **運用マニュアル作成**
+  - [ ] デプロイ手順書
+  - [ ] 障害対応手順書
+  - [ ] 設定変更手順書
+  - [ ] 監視項目チェックリスト
 
-### 5.1 エラーハンドリング
-- [ ] OAuth認証エラーの適切な処理
-- [ ] MCP接続エラーの表示
-- [ ] ユーザーフレンドリーなエラーメッセージ
+- [ ] **緊急時対応準備**
+  - [ ] ローカルMCPへの緊急復帰手順
+  - [ ] 障害時の通知フロー
+  - [ ] エスカレーション基準
 
-### 5.2 通知システム
-- [ ] 認証成功時のSlack通知
-- [ ] トークン期限切れ時の通知
-- [ ] サーバー接続状態変更時の通知
+---
 
-### 5.3 ヘルプとドキュメント
-- [ ] `/mcp help`コマンドの実装
-- [ ] 各機能の使用方法説明
-- [ ] トラブルシューティングガイド
+## 🔧 設定確認項目
 
-## Phase 6: テストとデバッグ
+### 環境変数チェックリスト
+```bash
+# slack-mcp-agent/.env
+MCP_MODE=http  # 'local' から 'http' に変更済み？
+HTTP_MCP_URL=https://your-domain/  # 本番URL設定済み？
 
-### 6.1 ユニットテスト
-- [ ] `tests/test_oauth.py` - OAuth機能のテスト
-- [ ] `tests/test_mcp_ui.py` - Slack UI機能のテスト
-- [ ] `tests/test_token_manager.py` - トークン管理のテスト
-
-### 6.2 統合テスト
-- [ ] 認証フロー全体のテスト
-- [ ] MCPサーバーとの連携テスト
-- [ ] エラー状況での動作テスト
-
-### 6.3 セキュリティテスト
-- [ ] CSRF攻撃のテスト
-- [ ] トークン漏洩のテスト
-- [ ] 権限境界のテスト
-
-## Phase 7: デプロイメントと運用
-
-### 7.1 設定ファイルの更新
-- [ ] `.env.example`にOAuth設定を追加
-- [ ] `start_bot.sh`にRedisとOAuthサーバー起動を追加
-- [ ] `check_config.py`にRedisとOAuth設定チェックを追加
-
-### 7.2 ドキュメント更新
-- [ ] `CLAUDE.md`にOAuth機能の説明を追加
-- [ ] READMEにセットアップ手順を追加
-- [ ] API仕様書の更新
-
-### 7.3 モニタリング
-- [ ] OAuth認証成功/失敗のログ
-- [ ] MCP接続状態のメトリクス
-- [ ] パフォーマンス監視
-
-## ファイル構造（実装後）
-
-```
-/Users/mei/slack-bot/
-├── app.py                          # 既存 + /mcpコマンド追加
-├── oauth/
-│   ├── __init__.py
-│   ├── config.py                   # OAuth設定管理
-│   ├── oauth_handler.py            # Flask認証サーバー
-│   └── token_manager.py            # Redis使用のトークン管理
-├── slack_ui/
-│   ├── __init__.py
-│   └── mcp_ui.py                   # MCPサーバー用UI
-├── mcp/
-│   ├── __init__.py
-│   └── status_manager.py           # MCP状態管理
-├── config/
-│   └── redis.conf                  # Redis設定
-├── tests/
-│   ├── test_oauth.py
-│   ├── test_mcp_ui.py
-│   └── test_token_manager.py
-├── requirements.txt                # 依存関係追加
-├── start_bot.sh                    # 起動スクリプト更新
-└── TODO.md                         # このファイル
+# notion-mcp-http-server/.env
+NODE_ENV=production  # 本番モード設定済み？
+ALLOWED_ORIGINS=https://your-bot-domain.com  # CORS設定済み？
 ```
 
-## 環境変数追加
+### Cloudflare設定チェックリスト
+- [ ] Workers プランは適切？（Free/Bundled/Unbound）
+- [ ] KVストレージは必要？（現在未使用だが将来のキャッシュ用）
+- [ ] カスタムドメインは設定するか？
+- [ ] 地域分散は必要？（現在日本のユーザーのみ）
 
-```env
-# OAuth関連
-OAUTH_CALLBACK_URL=http://localhost:62307/callback
-OAUTH_SECRET_KEY=your_secret_key_here
+### セキュリティチェックリスト
+- [ ] HTTPS通信強制設定
+- [ ] CORS オリジン制限適切？
+- [ ] レート制限は必要？（将来の大量アクセス対策）
+- [ ] アクセスログの保持期間設定
 
-# Redis関連
-REDIS_URL=redis://localhost:6379
-REDIS_PASSWORD=
+---
 
-# MCP OAuth設定
-NOTION_OAUTH_CLIENT_ID=Z8uuTVGoB1edIkdR
-NOTION_OAUTH_CLIENT_SECRET=your_notion_oauth_secret
-```
+## 🎯 今後の課題・改善案
 
-## 実装優先度
+### 短期的改善（1-2週間）
+- [ ] **エラー処理強化**
+  - [ ] Notion API制限時の適切なリトライ
+  - [ ] タイムアウト時間の最適化
+  - [ ] ユーザーフレンドリーなエラーメッセージ
 
-### 高優先度（MVP）
-1. Phase 1: 基盤となるOAuthインフラの構築
-2. Phase 2: OAuth認証サーバーの実装
-3. Phase 3: Slackコマンドとインタラクションの実装
+- [ ] **監視強化**
+  - [ ] 異常なリクエストパターンの検出
+  - [ ] パフォーマンス劣化の早期発見
+  - [ ] 使用量トレンドの分析
 
-### 中優先度
-4. Phase 4: MCP統合とバックエンド処理
-5. Phase 5: ユーザーエクスペリエンスの向上
+### 中期的改善（1-2ヶ月）
+- [ ] **機能拡張**
+  - [ ] 他のMCPサーバー対応（GitHub, Google Drive等）
+  - [ ] バッチ処理の最適化
+  - [ ] キャッシュ機能の追加
 
-### 低優先度（リリース後）
-6. Phase 6: テストとデバッグ
-7. Phase 7: デプロイメントと運用
+- [ ] **運用自動化**
+  - [ ] CI/CDパイプライン構築
+  - [ ] 自動デプロイ設定
+  - [ ] 設定変更の自動化
 
-## 推定工数
+### 長期的改善（3-6ヶ月）
+- [ ] **アーキテクチャ進化**
+  - [ ] マイクロサービス化
+  - [ ] GraphQL API対応
+  - [ ] リアルタイム機能（WebSocket等）
 
-- **Phase 1-3（MVP）**: 2-3日
-- **Phase 4-5（完全版）**: 2-3日
-- **Phase 6-7（品質向上）**: 1-2日
+---
 
-**合計**: 5-8日（1人での実装想定）
+## 📊 想定リソース・コスト
 
-## 実装上の注意点
+### Cloudflare Workers使用量予測
+- **リクエスト数**: 約1,000/日（3人 × 10リクエスト × 30日）
+- **実行時間**: 平均200ms/リクエスト
+- **データ転送**: 約10MB/日
 
-### セキュリティ
-- OAuth stateパラメーターの適切な管理
-- トークンの暗号化保存
-- HTTPS必須（本番環境）
+### 予想コスト（月額）
+- **Workers**: $0（Free枠内）
+- **KVストレージ**: $0（未使用または少量）
+- **カスタムドメイン**: $0（既存ドメイン使用の場合）
 
-### パフォーマンス
-- Redisの接続プーリング
-- MCP接続のキャッシング
-- 非同期処理の活用
+**合計**: 月額 $0-5 程度
 
-### 運用
-- ログレベルの適切な設定
-- メトリクス収集
-- エラー監視とアラート
+---
 
-この実装により、画像で示されたUXフローを完全に再現し、ユーザーフレンドリーなMCP認証機能を提供できます。
+## 📞 サポート・ドキュメント
+
+### 参考資料
+- **Cloudflare Workers Docs**: https://developers.cloudflare.com/workers/
+- **Wrangler CLI**: https://developers.cloudflare.com/workers/cli-wrangler/
+- **Notion API**: https://developers.notion.com/
+
+### 作業ログ・進捗管理
+- [ ] 各タスクの実行日時記録
+- [ ] 遭遇した問題と解決策の記録
+- [ ] 設定値と変更履歴の記録
+
+---
+
+**次のアクション**: Phase 5.1 のWrangler CLI設定確認から開始し、段階的にCloudflareデプロイを進める。

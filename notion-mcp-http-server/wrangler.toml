@@ -1,0 +1,32 @@
+name = "notion-mcp-server"
+main = "dist/worker.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ローカル開発設定
+[env.development]
+name = "notion-mcp-server-dev"
+vars = { NODE_ENV = "development" }
+
+# 本番環境設定
+[env.production]
+name = "notion-mcp-server-prod"
+vars = { NODE_ENV = "production" }
+
+# カスタムドメイン設定（オプション）
+# [env.production.routes]
+# pattern = "mcp-server.your-domain.com/*"
+
+# KVストレージ（トークンキャッシュ用・オプション）
+[[kv_namespaces]]
+binding = "TOKEN_CACHE"
+id = "your-kv-namespace-id"
+preview_id = "your-preview-kv-namespace-id"
+
+# 環境変数（Cloudflareダッシュボードで設定）
+# ALLOWED_ORIGINS = "https://your-domain.com,https://localhost:3001"
+
+# ワーカーの制限設定
+[limits]
+# 実行時間制限（30秒まで）
+cpu_ms = 30000 
