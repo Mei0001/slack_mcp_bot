@@ -174,8 +174,18 @@ class MastraBridge:
                 logger.info(f"[MastraBridge] ✅ Enhanced response generated ({len(response_text)} chars)")
                 return result
             else:
-                error_msg = f"HTTP {response.status_code}: {response.text[:100]}"
-                logger.error(f"[MastraBridge] ❌ {error_msg}")
+                # エラーメッセージ全体を取得
+                full_error = response.text
+                error_msg = f"HTTP {response.status_code}: {full_error}"
+                logger.error(f"[MastraBridge] ❌ Full error: {error_msg}")
+                
+                # レート制限エラーの場合は特別な処理
+                if "rate limit" in full_error.lower():
+                    return {
+                        "error": "APIレート制限に達しました。しばらく待ってから再度お試しください。",
+                        "details": full_error
+                    }
+                
                 return {"error": f"エラー: {error_msg}"}
                 
         except requests.exceptions.Timeout:

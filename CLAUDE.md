@@ -56,6 +56,110 @@ python app.py
 
 ## 重要な注意事項
 
+## ロギング
+* ライブラリ: vibelogger
+* 使い方: https://github.com/fladdict/vibe-logger
+* vibeloggerはコーディングエージェント用に高度な構造化データを出力するロガーです。
+* ログにはvibeloggerを可能な限り利用し、ログからAIが自律的に何が起きてるかを把握できるようにする
+* vibeloggerにはステップ、プロセス、コンテキスト情報、TODOなど様々な情報を構造化して記録できます。
+* デバッグ時には./logsの出力を参照する
+
+# 📘 VibeLogger 運用ガイド（Node.js）
+
+## ✅ 目的（Why）
+- ClaudeなどのLLMが理解しやすい**構造化ログ**を残すため
+- エラー分析・改善提案を**AIに任せる**ため
+- チーム開発で**判断の可視化**・意図の共有を行うため
+
+---
+
+```typescript
+// utils/logger.ts
+import { createFileLogger } from "vibelogger";
+export const logger = createFileLogger("my_project");
+```
+
+## 🧾 ログ出力テンプレート（How）
+
+```typescript
+import { logger } from "./utils/logger";
+
+await logger.info(
+  "operation_name",                // 操作ID
+  "何が起きたか",                   // message
+  {
+    context: { key: "value" },     // 任意の詳細情報
+    human_note: "AI向けの補足",     // Claude用メモ
+    correlation_id: "req-1234"     // リクエスト単位で統一
+  }
+);
+```
+
+## 📌 使うタイミング（When）
+
+| シーン | operation名例 | context例 |
+|--------|---------------|-----------|
+| API開始 | `get_user_start` | `{ user_id }` |
+| 成功時 | `get_user_success` | `{ resultCount: 3 }` |
+| 失敗時 | `get_user_error` | `{ error_code, stack }` |
+| 外部API呼び出し | `call_payment_api` | `{ url, status }` |
+| バリデーション | `invalid_input_detected` | `{ field: "email" }` |
+
+## 📂 保存先・出力形式
+
+- ログは `./logs/my_project/` に JSON 形式で保存されます
+- Claude へログファイル全体 or 必要箇所を貼るだけで分析可能
+
+# 📘 VibeLogger 運用ガイド（Python）
+
+## ✅ 目的（Why）
+- ClaudeなどのLLMが読みやすい**構造化ログ**を記録する
+- エラーや処理の流れを**AIで自己分析・改善**する
+- ログに**意図や判断理由を含めて共有**する
+
+---
+
+## 🛠 インストール & セットアップ
+
+```bash
+pip install vibelogger
+```
+
+```python
+# utils/logger.py
+from vibelogger import create_file_logger
+logger = create_file_logger("my_project")
+```
+
+## 🧾 ログ出力テンプレート（How）
+
+```python
+from utils.logger import logger
+
+logger.info(
+    operation="fetch_user_data",             # 処理名
+    message="ユーザーデータの取得開始",       # 人向け説明
+    context={"user_id": "abc123"},           # 状況や変数
+    human_note="この部分はClaudeで改善案を検討して"  # Claude用の補足
+)
+```
+
+## 📌 使うタイミング（When）
+
+| シーン | operation名例 | context例 |
+|--------|---------------|-----------|
+| 処理開始 | `train_model_start` | `{ model: "XGBoost", step: 1 }` |
+| 成功時 | `train_model_success` | `{ accuracy: 0.89 }` |
+| 例外発生 | `train_model_failed` | `{ error: str(e) }` |
+| API呼び出し | `call_openai_api` | `{ endpoint, tokens }` |
+| 条件分岐 | `invalid_input_detected` | `{ input_field: "email" }` |
+
+## 📂 保存先・出力形式
+
+- ログは `./logs/my_project/` に JSON形式で保存されます
+- 実行ごとに `vibe_YYYYMMDD_HHMMSS.json` ファイルが生成
+- Claude へログファイルをそのまま貼れば分析できます
+
 ### セキュリティ設定
 - ボットは.envファイルに2つのトークンが必要:
   - `SLACK_BOT_TOKEN`: Bot User OAuthトークン

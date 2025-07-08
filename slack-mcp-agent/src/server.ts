@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import { getAIAssistant } from './mastra/index';
+import { rateLimiter } from './utils/rate-limiter';
 // import { getMCPToolsets } from './mastra/mcp'; // 非推奨：AuthenticatedMCPClientを使用
 
 // .envファイルを読み込む
@@ -44,7 +45,7 @@ app.post('/api/agent/search', async (req, res) => {
 
     // ユーザーごとにエージェントを初期化（認証済みMCPツールを使用）
     console.log(`[Server] 🤖 Initializing AI Assistant for user ${userId}...`);
-    const userAgent = await getAIAssistant(userId);
+    const userAgent = await getAIAssistant(userId, message);
     
     // エージェントの状態をログ出力
     const agentTools = await userAgent.getTools();
@@ -62,6 +63,14 @@ app.post('/api/agent/search', async (req, res) => {
     
     let result;
     try {
+      // レート制限チェック
+      const agentTools = await userAgent.getTools();
+      const toolCount = Object.keys(agentTools).length;
+      const estimatedTokens = rateLimiter.estimateTokens(fullMessage, toolCount);
+      
+      console.log(`[Server] 🚦 Checking rate limit for ~${estimatedTokens} tokens...`);
+      await rateLimiter.checkAndWait(estimatedTokens);
+      
       // ユーザー認証済みエージェントでレスポンス生成
       console.log('[Server] 🚀 Generating response with user-authenticated agent...');
       
@@ -98,6 +107,14 @@ app.post('/api/agent/search', async (req, res) => {
         name: generateError.name,
         cause: generateError.cause
       });
+      
+      // レート制限エラーのチェック
+      if (generateError.message?.includes('rate limit') || 
+          generateError.message?.includes('429') ||
+          generateError.message?.includes('exceed')) {
+        console.error('[Server] Rate limit error detected');
+        throw new Error('APIレート制限に達しました。数分後に再度お試しください。');
+      }
       
       // MCPツールエラーの場合はフォールバックエージェントで再試行
       if (generateError.message?.includes('tool') || generateError.message?.includes('mcp')) {

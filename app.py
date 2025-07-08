@@ -16,11 +16,15 @@ from slack_ui import (
     generate_oauth_state,
     generate_oauth_url
 )
+from vibelogger import create_file_logger
 
 # 環境変数の読み込み
 load_dotenv()
 
-# ログ設定
+# vibeloggerの設定
+vibe_logger = create_file_logger("slack_bot")
+
+# 既存のログ設定（フォールバック用）
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -111,6 +115,20 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None, clie
     
     logger.info(f"[Slack] Processing message: {message_text[:50]}...")
     
+    # vibeloggerでプロセスを開始
+    vibe_logger.info(
+        operation="search_request_start",
+        message=f"検索リクエスト開始: {message_text[:50]}...",
+        context={
+            "message": message_text,
+            "thread_id": thread_ts,
+            "user_id": user_id,
+            "has_thread": bool(thread_ts),
+            "message_length": len(message_text)
+        },
+        human_note="ユーザーからの検索・質問リクエストの処理開始"
+    )
+    
     try:
         # スレッドの会話履歴を取得
         context = thread_memory.get_context(thread_ts)
@@ -154,7 +172,23 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None, clie
         if "error" in result:
             # エラーの種類に応じたメッセージを生成
             error_detail = result['error']
-            if "タイムアウト" in error_detail:
+            if "レート制限" in error_detail or "rate limit" in error_detail.lower():
+                error_msg = "⚠️ APIレート制限に達しました。数分後に再度お試しください。"
+                # 詳細情報がある場合はログに出力
+                if 'details' in result:
+                    logger.error(f"[Slack] Rate limit details: {result['details']}")
+                    vibe_logger.error(
+                        operation="rate_limit_error",
+                        message="APIレート制限エラーが発生",
+                        context={
+                            "error": error_detail,
+                            "details": result.get('details', ''),
+                            "user_id": user_id,
+                            "message": message_text[:100]
+                        },
+                        human_note="Anthropic APIのレート制限に達しました。ツール数削減やリクエスト間隔調整が必要"
+                    )
+            elif "タイムアウト" in error_detail:
                 error_msg = "⏱️ 処理がタイムアウトしました。もう一度お試しください。"
             elif "接続できません" in error_detail:
                 error_msg = "🔌 サービスに接続できません。しばらくしてからお試しください。"
@@ -182,6 +216,20 @@ def process_message_with_mastra(message_text, thread_ts, say, user_id=None, clie
             thread_memory.add_message(thread_ts, "assistant", response)
             
             logger.info(f"[Slack] Response sent: {len(response)} chars")
+            
+            # vibeloggerでプロセス完了
+            vibe_logger.info(
+                operation="search_request_success",
+                message=f"検索リクエスト完了: {len(response)}文字の応答を生成",
+                context={
+                    "response_length": len(response),
+                    "has_warning": bool(warning),
+                    "user_id": user_id,
+                    "thread_id": thread_ts,
+                    "success": True
+                },
+                human_note="検索・質問リクエストが正常に完了し、ユーザーに応答を送信"
+            )
             
     except Exception as e:
         logger.error(f"[Slack] Processing error: {e}")
@@ -263,6 +311,18 @@ def handle_mcp_command(ack, body, client):
     ack()
     user_id = body["user_id"]
     channel_id = body["channel_id"]
+    
+    # vibeloggerでコマンドをログ
+    vibe_logger.info(
+        operation="mcp_command_executed",
+        message="/mcpコマンドが実行されました",
+        context={
+            "user_id": user_id,
+            "channel_id": channel_id,
+            "command": "/mcp"
+        },
+        human_note="ユーザーがMCP連携サービス管理画面を開いた"
+    )
     
     # Create blocks for MCP services
     blocks = []

@@ -2,16 +2,25 @@ import { Agent } from "@mastra/core/agent";
 import { anthropic } from "@ai-sdk/anthropic";
 import { MCPClient } from "@mastra/mcp";
 import { OAuthTokenManager } from "../../oauth/token-manager";
+import { createFileLogger } from "vibelogger";
+import { getToolConfigForMessage } from "../tool-config";
+
+// vibeloggerの初期化
+const logger = createFileLogger("mastra_agent");
 
 // エージェントキャッシュ（メモリ内、1時間有効）
 const agentCache = new Map<string, { agent: Agent; timestamp: number }>();
 const CACHE_TTL = 60 * 60 * 1000; // 1時間
 
 // エージェントをMCPツールと共に作成する関数（Mastraドキュメント準拠）
-export async function createAIAssistant(userId?: string) {
+export async function createAIAssistant(userId?: string, message?: string) {
+  // メッセージベースのキャッシュキーを生成（ツール設定が変わる可能性があるため）
+  const toolConfigKey = message ? getToolConfigForMessage(message).essential.join(',') : 'default';
+  const cacheKey = userId ? `${userId}-${toolConfigKey}` : 'default';
+  
   // キャッシュチェック
-  if (userId) {
-    const cached = agentCache.get(userId);
+  if (userId && !message) {  // メッセージがない場合のみキャッシュを使用
+    const cached = agentCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       console.log(`[Agent] 📦 Returning cached agent for user ${userId}`);
       return cached.agent;
@@ -99,27 +108,70 @@ export async function createAIAssistant(userId?: string) {
             const allTools = await userMcp.getTools();
             
             // レート制限を避けるため、必要なツールだけをフィルタリング
-            const essentialToolNames = [
-              'notion_API-post-search',           // 検索（最重要）
-              'notion_API-post-database-query',   // データベースクエリ
-              'notion_API-retrieve-a-page',       // ページ取得
-              'notion_API-retrieve-a-database',   // データベース取得
-              'notion_API-get-block-children',    // ブロックコンテンツ取得
-              'notion_API-patch-page',            // ページ更新
-              'notion_API-post-page',             // ページ作成
-            ];
+            // 参考: https://zenn.dev/nikechan/articles/b9b2d40129f736
             
-            // 必要なツールだけを選択
-            Object.entries(allTools).forEach(([toolName, toolDef]) => {
-              if (essentialToolNames.includes(toolName)) {
-                tools[toolName] = toolDef;
-              }
+            // メッセージに基づいて動的にツール設定を取得
+            const toolConfig = message ? getToolConfigForMessage(message) : {
+              essential: ['notion_API-post-search'],  // デフォルトは検索のみ
+              optional: [],
+              excluded: []
+            };
+            
+            console.log(`[Agent] 📊 Dynamic tool config for message:`, {
+              message: message?.substring(0, 50) || 'no message',
+              essential: toolConfig.essential,
+              excluded: toolConfig.excluded
             });
+            
+            // 除外ツールのSetを作成
+            const excludedTools = new Set(toolConfig.excluded);
+            
+            // Zenn記事のパターンに従ってフィルタリング
+            tools = Object.fromEntries(
+              Object.entries(allTools)
+                .filter(([toolName]) => {
+                  // 必須ツールを優先
+                  if (toolConfig.essential.includes(toolName)) {
+                    return true;
+                  }
+                  // オプションツールも含める
+                  if (toolConfig.optional.includes(toolName)) {
+                    return true;
+                  }
+                  // 除外リストにあるものは除外
+                  if (excludedTools.has(toolName)) {
+                    return false;
+                  }
+                  // その他のツールは含めない（トークン削減のため）
+                  return false;
+                })
+            );
             
             connectedServices.push('notion');
             
             console.log(`[Agent] 🎉 Filtered ${Object.keys(tools).length} essential tools from ${Object.keys(allTools).length} total MCP tools`);
             console.log(`[Agent] 📋 Active tools:`, Object.keys(tools));
+            
+            // vibeloggerでツールフィルタリングを記録
+            await logger.info(
+              "mcp_tools_filtered",
+              `MCPツールを${Object.keys(allTools).length}個から${Object.keys(tools).length}個にフィルタリング`,
+              {
+                context: {
+                  user_id: userId,
+                  message_hint: message?.substring(0, 50) || 'no message',
+                  total_tools: Object.keys(allTools).length,
+                  filtered_tools: Object.keys(tools).length,
+                  active_tools: Object.keys(tools),
+                  essential_tools: toolConfig.essential,
+                  optional_tools: toolConfig.optional,
+                  excluded_tools: toolConfig.excluded,
+                  excluded_count: Object.keys(allTools).length - Object.keys(tools).length
+                },
+                human_note: "Zenn記事のパターンを応用してメッセージ内容に基づいた動的MCPツールフィルタリング。レート制限対策として必要最小限のツールを選択。",
+                correlation_id: `agent-${userId}-${Date.now()}`
+              }
+            );
             
             // 各ツールの詳細をログ出力
             Object.entries(tools).forEach(([toolName, toolDef]) => {
@@ -136,6 +188,22 @@ export async function createAIAssistant(userId?: string) {
               message: toolsError?.message || 'Unknown error',
               stack: toolsError?.stack || 'No stack trace'
             });
+            
+            // vibeloggerでMCPツール取得エラーを記録
+            await logger.error(
+              "mcp_tools_load_error",
+              "MCPツールの取得に失敗",
+              {
+                context: {
+                  user_id: userId,
+                  error_name: toolsError?.name || 'Unknown',
+                  error_message: toolsError?.message || 'Unknown error',
+                  has_stack: !!toolsError?.stack
+                },
+                human_note: "MCPサーバーとの通信エラーまたは認証エラーの可能性",
+                correlation_id: `agent-${userId}-${Date.now()}`
+              }
+            );
           }
           
         } else {
@@ -183,9 +251,9 @@ export async function createAIAssistant(userId?: string) {
     const toolCount = Object.keys(tools).length;
     console.log(`[Agent] Created AI Assistant successfully with ${toolCount} tools`);
     
-    // キャッシュに保存
-    if (userId && toolCount > 0) {
-      agentCache.set(userId, { agent, timestamp: Date.now() });
+    // キャッシュに保存（メッセージがない場合のみ）
+    if (userId && toolCount > 0 && !message) {
+      agentCache.set(cacheKey, { agent, timestamp: Date.now() });
       console.log(`[Agent] 💾 Agent cached for user ${userId}`);
     }
     

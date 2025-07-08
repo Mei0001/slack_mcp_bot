@@ -44,10 +44,10 @@ export const mastra = new Mastra({
 });
 
 // エージェントへのアクセス用エクスポート
-export async function getAIAssistant(userId?: string) {
+export async function getAIAssistant(userId?: string, message?: string) {
   // ユーザーごとにエージェントを作成（認証済みMCPツール）
   if (userId) {
-    return await createAIAssistant(userId);
+    return await createAIAssistant(userId, message);
   }
   
   // デフォルトのエージェントを返す
