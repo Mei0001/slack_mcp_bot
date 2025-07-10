@@ -10,7 +10,7 @@ echo -e "${GREEN}=== Slack MCP Bot 起動スクリプト ===${NC}"
 
 # 既存のプロセスを停止
 echo -e "${YELLOW}[0/3] 既存のプロセスをクリーンアップ中...${NC}"
-pkill -f "tsx src/agent/index.ts" 2>/dev/null || true
+pkill -f "tsx.*server.ts" 2>/dev/null || true
 pkill -f "python app.py" 2>/dev/null || true
 sleep 2
 
@@ -23,8 +23,10 @@ fi
 
 # Node.jsサーバーをバックグラウンドで起動
 echo -e "${YELLOW}[1/3] Node.js Mastraエージェントサーバーを起動中...${NC}"
-npm run dev &
+cd slack-mcp-agent
+npm run server &
 NODE_PID=$!
+cd ..
 
 # サーバーが起動するまで待機
 echo -e "${YELLOW}サーバーの起動を待っています...${NC}"
@@ -49,7 +51,8 @@ echo -e "${YELLOW}停止するには Ctrl+C を押してください${NC}"
 cleanup() {
     echo -e "\n${YELLOW}終了処理中...${NC}"
     kill $NODE_PID 2>/dev/null || true
-    pkill -f "tsx src/agent/index.ts" 2>/dev/null || true
+    pkill -f "tsx.*server.ts" 2>/dev/null || true
+    pkill -f "python app.py" 2>/dev/null || true
     echo -e "${GREEN}すべてのプロセスを停止しました${NC}"
 }
 trap cleanup EXIT INT TERM

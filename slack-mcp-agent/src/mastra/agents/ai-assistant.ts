@@ -2,11 +2,11 @@ import { Agent } from "@mastra/core/agent";
 import { anthropic } from "@ai-sdk/anthropic";
 import { MCPClient } from "@mastra/mcp";
 import { OAuthTokenManager } from "../../oauth/token-manager";
-import { createFileLogger } from "vibelogger";
+// import { createFileLogger } from "vibelogger";
 import { getToolConfigForMessage } from "../tool-config";
 
-// vibeloggerの初期化
-const logger = createFileLogger("mastra_agent");
+// vibeloggerの初期化（一時的に無効化）
+// const logger = createFileLogger("mastra_agent");
 
 // エージェントキャッシュ（メモリ内、1時間有効）
 const agentCache = new Map<string, { agent: Agent; timestamp: number }>();
@@ -152,26 +152,18 @@ export async function createAIAssistant(userId?: string, message?: string) {
             console.log(`[Agent] 🎉 Filtered ${Object.keys(tools).length} essential tools from ${Object.keys(allTools).length} total MCP tools`);
             console.log(`[Agent] 📋 Active tools:`, Object.keys(tools));
             
-            // vibeloggerでツールフィルタリングを記録
-            await logger.info(
-              "mcp_tools_filtered",
-              `MCPツールを${Object.keys(allTools).length}個から${Object.keys(tools).length}個にフィルタリング`,
-              {
-                context: {
-                  user_id: userId,
-                  message_hint: message?.substring(0, 50) || 'no message',
-                  total_tools: Object.keys(allTools).length,
-                  filtered_tools: Object.keys(tools).length,
-                  active_tools: Object.keys(tools),
-                  essential_tools: toolConfig.essential,
-                  optional_tools: toolConfig.optional,
-                  excluded_tools: toolConfig.excluded,
-                  excluded_count: Object.keys(allTools).length - Object.keys(tools).length
-                },
-                human_note: "Zenn記事のパターンを応用してメッセージ内容に基づいた動的MCPツールフィルタリング。レート制限対策として必要最小限のツールを選択。",
-                correlation_id: `agent-${userId}-${Date.now()}`
-              }
-            );
+            // vibeloggerでツールフィルタリングを記録（一時的に無効化）
+            console.log(`[Agent] 📊 Tool filtering completed:`, {
+              user_id: userId,
+              message_hint: message?.substring(0, 50) || 'no message',
+              total_tools: Object.keys(allTools).length,
+              filtered_tools: Object.keys(tools).length,
+              active_tools: Object.keys(tools),
+              essential_tools: toolConfig.essential,
+              optional_tools: toolConfig.optional,
+              excluded_tools: toolConfig.excluded,
+              excluded_count: Object.keys(allTools).length - Object.keys(tools).length
+            });
             
             // 各ツールの詳細をログ出力
             Object.entries(tools).forEach(([toolName, toolDef]) => {
@@ -189,21 +181,13 @@ export async function createAIAssistant(userId?: string, message?: string) {
               stack: toolsError?.stack || 'No stack trace'
             });
             
-            // vibeloggerでMCPツール取得エラーを記録
-            await logger.error(
-              "mcp_tools_load_error",
-              "MCPツールの取得に失敗",
-              {
-                context: {
-                  user_id: userId,
-                  error_name: toolsError?.name || 'Unknown',
-                  error_message: toolsError?.message || 'Unknown error',
-                  has_stack: !!toolsError?.stack
-                },
-                human_note: "MCPサーバーとの通信エラーまたは認証エラーの可能性",
-                correlation_id: `agent-${userId}-${Date.now()}`
-              }
-            );
+            // vibeloggerでMCPツール取得エラーを記録（一時的に無効化）
+            console.error(`[Agent] 🚨 MCP tools load error:`, {
+              user_id: userId,
+              error_name: toolsError?.name || 'Unknown',
+              error_message: toolsError?.message || 'Unknown error',
+              has_stack: !!toolsError?.stack
+            });
           }
           
         } else {

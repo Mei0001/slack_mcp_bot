@@ -14,7 +14,7 @@ OAUTH_PID=$!
 sleep 2
 
 echo "🤖 Starting Slack Bot..."
-./start_bot.sh &
+./start_services.sh &
 BOT_PID=$!
 
 echo ""
